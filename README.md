@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ⚡ Content OS v4.0
 
 A high-performance, AI-driven content generation and management system. This platform allows users to create, transform, and manage professional-grade content using the Google Gemini model, featuring a unified backend accessible via both a **Streamlit Dashboard** and a **FastAPI Backend**.
@@ -98,3 +99,7 @@ This app is ready for deployment on platforms like **Render**, **Railway**, or *
 
 ---
 Built with ❤️ by [Ashwath-Raj](https://github.com/Ashwath-Raj)
+=======
+# Content-OS
+AI Content OS is a unified, intelligent platform designed to streamline digital content workflows. It integrates content creation, personalization, and multi-format transformation into a single ecosystem, eliminating fragmentation and inefficiencies faced by creators and teams.
+>>>>>>> c25af704f830ce619fcba6f9b128d7ca70c6e9fa

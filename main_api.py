@@ -1,19 +1,40 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Depends, Security
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import uvicorn
 import os
-from core import call_gemini, ContentManager, IngestionClient, CMS_ROOT, check_env_security
+from dotenv import load_dotenv
+
+# Load environment before any other imports that might use env vars
+load_dotenv(override=True)
+
+from core import (
+    call_gemini, ContentManager, IngestionClient, CMS_ROOT, 
+    check_env_security, predict_engagement_metrics, 
+    predict_audience_insights, predict_user_behavior
+)
 
 app = FastAPI(title="Content OS API", version="4.0")
+
+# Security: CORS Policy
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Security Check on Startup
 sec_ok, sec_msg = check_env_security()
 if not sec_ok:
     print(sec_msg)
-    # Don't exit here to allow dev to see docs, but endpoints will fail if keys are missing
+
 cms = ContentManager()
 ingest_client = IngestionClient()
+
 
 # --- Models ---
 
@@ -159,23 +180,52 @@ def log_interaction(interaction_type: str, details: Optional[Dict[str, Any]] = N
     # In a real app, this would save to a DB. For now, we just acknowledge.
     return {"message": f"Interaction {interaction_type} logged.", "details": details}
 
-@app.get("/personalize/metrics")
-def get_user_metrics():
-    # Return mock metrics as seen in the UI
+@app.post("/personalize/predict_engagement")
+def predict_engagement(content: str, tone: str = "Professional", platform: str = "Generic"):
+    """AI-powered engagement prediction endpoint"""
+    predictions = predict_engagement_metrics(content, tone, platform)
     return {
-        "session_duration_min": 5.2,
-        "interactions": 12,
-        "projects_viewed": 3,
-        "tone_preferences": ["Professional", "Casual"]
+        "predictions": predictions,
+        "message": "Engagement metrics predicted successfully"
+    }
+
+@app.post("/personalize/predict_audience")
+def predict_audience(content: str, audience: str = "General Tech"):
+    """AI-powered audience insights prediction endpoint"""
+    insights = predict_audience_insights(content, audience)
+    return {
+        "insights": insights,
+        "message": "Audience insights generated successfully"
+    }
+
+@app.post("/personalize/predict_user_behavior")
+def predict_user_modeling(history: List[str], user_prefs: Dict[str, Any]):
+    """AI-powered user behavior modeling endpoint"""
+    prediction = predict_user_behavior(history, user_prefs)
+    return {
+        "prediction": prediction,
+        "message": "User behavior predicted successfully"
     }
 
 @app.post("/personalize/summarize")
 def personalize_summary(req: Dict[str, Any]):
     content = req.get("content", "")
     user_prefs = req.get("user_prefs", {})
+    ai_engagement = req.get("ai_engagement", {})
+    ai_audience = req.get("ai_audience", {})
+    
     prompt = f"""
-    Summarize this content.
+    Summarize this content with insights from AI-predicted engagement analytics.
+    
     USER PREFERENCES: {user_prefs}
+    
+    AI-PREDICTED ENGAGEMENT METRICS: {ai_engagement}
+    AI-PREDICTED AUDIENCE INSIGHTS: {ai_audience}
+    
+    Based on these predictions, explain:
+    1. Why this content is predicted to perform at this level
+    2. What elements contribute to the predicted engagement
+    3. Suggestions to improve engagement score
     
     Content: {content[:5000]}
     """

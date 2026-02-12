@@ -102,7 +102,7 @@ from core import (
     call_gemini, generate_hash, extract_text_from_pdf, 
     calculate_reading_time, sanitize_text, IngestionClient, 
     ContentManager, CMS_ROOT, get_youtube_transcript,
-    check_env_security
+    check_env_security, predict_engagement_metrics, predict_audience_insights, predict_user_behavior
 )
 
 # 3. Check API Key
@@ -133,37 +133,48 @@ class UserBehaviorTracker:
                 "preferred_length": "Medium",
                 "session_start": time.time(),
                 "clicked_projects": set(),
-                "engagement_metrics": { # Simulated External Engagement
-                    "total_likes": 0, 
-                    "top_performing_tone": None 
+                "ai_learning_data": {  # AI-driven preference learning
+                    "successful_tones": [],
+                    "successful_platforms": [],
+                    "engagement_history": [],
+                    "model_prediction": None # Store AI behavior prediction here
                 }
             }
-    
-    def update_engagement(self, likes, tone):
-        # update fake engagement model
-        self.session_state['user_prefs']['engagement_metrics']['total_likes'] += likes
-        if likes > 50: # Threshold for "Good" content
-             self.session_state['user_prefs']['liked_tones'].append(tone)
     
     def log_interaction(self, interaction_type, details=None):
         st.session_state['user_prefs']['interactions'] += 1
         if interaction_type == "click_project":
             st.session_state['user_prefs']['clicked_projects'].add(details)
             
-    def get_metrics(self):
-        duration = time.time() - st.session_state['user_prefs']['session_start']
-        return {
-            "session_duration_min": round(duration / 60, 2),
-            "interactions": st.session_state['user_prefs']['interactions'],
-            "projects_viewed": len(st.session_state['user_prefs']['clicked_projects'])
-        }
+    def get_metrics_prediction(self):
+        """Replaced manual metrics with AI-predicted user model"""
+        if st.session_state['user_prefs']['ai_learning_data']['model_prediction'] is None:
+            # Predict behavior if not already predicted
+            history = list(st.session_state['user_prefs']['clicked_projects'])
+            prediction = predict_user_behavior(history, st.session_state['user_prefs'])
+            st.session_state['user_prefs']['ai_learning_data']['model_prediction'] = prediction
+        
+        return st.session_state['user_prefs']['ai_learning_data']['model_prediction']
     
     def update_preference(self, category, value, positive=True):
         if category == "tone":
             if positive:
                 st.session_state['user_prefs']['liked_tones'].append(value)
+                st.session_state['user_prefs']['ai_learning_data']['successful_tones'].append(value)
             elif value in st.session_state['user_prefs']['liked_tones']:
                 st.session_state['user_prefs']['liked_tones'].remove(value)
+        # Clear model prediction so it regenerates with new preferences
+        st.session_state['user_prefs']['ai_learning_data']['model_prediction'] = None
+    
+    def record_ai_prediction_accuracy(self, predicted_score, actual_feedback):
+        """Track how accurate AI predictions are for continuous learning"""
+        st.session_state['user_prefs']['ai_learning_data']['engagement_history'].append({
+            'predicted': predicted_score,
+            'feedback': actual_feedback,
+            'timestamp': time.time()
+        })
+
+
 
 tracker = UserBehaviorTracker()
 
@@ -616,18 +627,19 @@ elif engine == "Transformation Engine":
 elif engine == "Personalization Engine":
     st.header("🧠 Personalization Engine")
     
-    # 1. User Behavior Modeling
-    with st.expander("📊 User Behavior & Modeling", expanded=True):
-        metrics = tracker.get_metrics()
-        bmc1, bmc2, bmc3 = st.columns(3)
-        bmc1.metric("Engagement Duration", f"{metrics['session_duration_min']} min")
-        bmc2.metric("Interaction Count", metrics['interactions'])
-        bmc3.metric("Projects Engaged", metrics['projects_viewed'])
+    # 1. AI User Behavior Predictive Modeling
+    with st.expander("📊 AI User Behavior & Modeling", expanded=True):
+        predictions = tracker.get_metrics_prediction()
+        pmc1, pmc2, pmc3 = st.columns(3)
+        pmc1.metric("Predicted Intensity", f"{predictions['predicted_intensity']}%")
+        pmc2.metric("Satisfaction Prediction", f"{predictions['satisfaction_prediction']}%")
+        pmc3.metric("Model Confidence", f"{predictions['learning_confidence']}%")
         
-        st.caption("Based on your current session patterns, we are building a preference model.")
+        st.info(f"**Predicted Focus Area:** {predictions['focus_area']}")
+        st.success(f"**Suggested Next Action:** {predictions['suggested_action']}")
         
-        # Simulated 'Reading Behavior' visualization
-        st.progress(min(metrics['interactions'] * 5, 100), text="Engagement Score")
+        # AI-Predicted Engagement Score for the user session
+        st.progress(predictions['predicted_intensity'], text="Predicted User Engagement Level")
 
     st.markdown("---")
 
@@ -648,30 +660,78 @@ elif engine == "Personalization Engine":
             p_data = proj_map[selected_p_title]
             tracker.log_interaction("click_project", selected_p_title)
             
-            # --- AUDIENCE ENGAGEMENT SIMULATOR (New Feature) ---
-            with st.expander("📈 Audience Engagement Data", expanded=False):
-                st.caption("Simulate how this content performed (Mock Data)")
-                sim_likes = st.number_input("Likes/Reactions", min_value=0, step=10, key=f"likes_{p_data['project_id']}")
-                sim_comments = st.number_input("Comments", min_value=0, key=f"comm_{p_data['project_id']}")
+            # --- AI-POWERED AUDIENCE ENGAGEMENT PREDICTIONS (Replaces Manual Input) ---
+            with st.expander("🤖 AI-Predicted Engagement Analytics", expanded=True):
+                st.caption("AI-generated predictions based on content analysis")
                 
-                if st.button("Update Engagement Stats", key=f"upd_{p_data['project_id']}"):
-                     # Update metadata with this 'fake' engagement
-                     current_ver = cms.get_history(p_data['folder'], p_data['project_id'])[0]
-                     extra = current_ver.get('extra_meta', {})
-                     extra['engagement'] = {"likes": sim_likes, "comments": sim_comments}
-                     
-                     cms.commit_version(
-                        p_data['folder'], p_data['project_id'], 
-                        current_ver['content'], 
-                        p_data['title'], 
-                        p_data['tags'], 
-                        current_ver['status'], 
-                        "Updated Engagement Stats", 
-                        extra_meta=extra
-                     )
-                     # Feed into learning model
-                     tracker.update_preference("tone", extra.get('tone', 'Neutral'), positive=sim_likes > 20)
-                     st.toast("Engagement Data Recorded! AI will learn from this.")
+                # Get current content
+                current_ver = cms.get_history(p_data['folder'], p_data['project_id'])[0]
+                content = current_ver['content']
+                
+                # Extract metadata for better predictions
+                tone = current_ver.get('extra_meta', {}).get('tone', 'Professional')
+                platform = current_ver.get('extra_meta', {}).get('platform', 'Generic')
+                audience = current_ver.get('extra_meta', {}).get('audience', 'General Tech')
+                
+                if st.button("🔮 Generate Engagement Predictions", key=f"pred_{p_data['project_id']}"):
+                    with st.spinner("Analyzing content and predicting engagement..."):
+                        # Get AI predictions
+                        engagement_pred = predict_engagement_metrics(content, tone, platform)
+                        audience_pred = predict_audience_insights(content, audience)
+                        
+                        # Store predictions in metadata
+                        extra = current_ver.get('extra_meta', {})
+                        extra['ai_engagement_prediction'] = engagement_pred
+                        extra['ai_audience_insights'] = audience_pred
+                        
+                        cms.commit_version(
+                            p_data['folder'], p_data['project_id'], 
+                            current_ver['content'], 
+                            p_data['title'], 
+                            p_data['tags'], 
+                            current_ver['status'], 
+                            "AI Engagement Predictions Generated", 
+                            extra_meta=extra
+                        )
+                        
+                        st.success("✅ AI Predictions Generated!")
+                        st.rerun()
+                
+                # Display predictions if they exist
+                extra = cms.get_history(p_data['folder'], p_data['project_id'])[0].get('extra_meta', {})
+                engagement_data = extra.get('ai_engagement_prediction', {})
+                audience_data = extra.get('ai_audience_insights', {})
+                
+                if engagement_data:
+                    st.markdown("#### 📊 Predicted Engagement Metrics")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("👍 Likes", engagement_data.get('likes', 0))
+                    col2.metric("💬 Comments", engagement_data.get('comments', 0))
+                    col3.metric("🔄 Shares", engagement_data.get('shares', 0))
+                    col4.metric("🎯 Score", f"{engagement_data.get('engagement_score', 0)}/100")
+                    
+                    st.info(f"**Best Time to Post:** {engagement_data.get('best_time', 'N/A')} | "
+                           f"**Predicted Reach:** {engagement_data.get('predicted_reach', 'N/A')} | "
+                           f"**Confidence:** {engagement_data.get('confidence', 0)}%")
+                
+                if audience_data:
+                    st.markdown("#### 👥 Audience Insights")
+                    aud_col1, aud_col2 = st.columns(2)
+                    with aud_col1:
+                        st.write(f"**Age Group:** {audience_data.get('age_group', 'N/A')}")
+                        st.write(f"**Engagement Pattern:** {audience_data.get('engagement_pattern', 'N/A')}")
+                        st.write(f"**Preferred Length:** {audience_data.get('preferred_length', 'N/A')}")
+                    with aud_col2:
+                        st.write(f"**Sentiment:** {audience_data.get('sentiment', 'N/A')}")
+                        st.write(f"**Retention Rate:** {audience_data.get('retention_rate', 0)}%")
+                        topics = audience_data.get('interest_topics', [])
+                        if topics:
+                            st.write(f"**Interest Topics:** {', '.join(topics)}")
+                
+                # Feed predictions into learning model
+                if engagement_data and engagement_data.get('engagement_score', 0) > 70:
+                    tracker.update_preference("tone", tone, positive=True)
+
 
             # 3. Learning Feedback Loop Display
             st.info(f"Detected Tone Preference: {max(set(st.session_state['user_prefs']['liked_tones']), key=st.session_state['user_prefs']['liked_tones'].count) if st.session_state['user_prefs']['liked_tones'] else 'Neutral'}")
@@ -679,17 +739,34 @@ elif engine == "Personalization Engine":
             st.markdown("#### ⚡ Quick Actions")
             if st.button("Summarize for Me"):
                 with st.spinner("Personalizing summary..."):
-                    # Get Engagement Context
+                    # Get AI-Predicted Engagement Context
                     hist = cms.get_history(p_data['folder'], p_data['project_id'])[0]
-                    eng_context = hist.get('extra_meta', {}).get('engagement', "No data")
+                    ai_engagement = hist.get('extra_meta', {}).get('ai_engagement_prediction', {})
+                    ai_audience = hist.get('extra_meta', {}).get('ai_audience_insights', {})
                     
-                    # Dynamic Personalization
+                    # Dynamic Personalization with AI predictions
                     prompt = f"""
-                    Summarize this content.
-                    USER PREFERENCES: {st.session_state['user_prefs']}
-                    PAST ENGAGEMENT ON THIS POST: {eng_context}
+                    Summarize this content with insights from AI-predicted engagement analytics.
                     
-                    Identify why this post might have performed well/poorly based on the engagement metrics provided.
+                    USER PREFERENCES: {st.session_state['user_prefs']}
+                    
+                    AI-PREDICTED ENGAGEMENT METRICS:
+                    - Expected Likes: {ai_engagement.get('likes', 'N/A')}
+                    - Expected Comments: {ai_engagement.get('comments', 'N/A')}
+                    - Engagement Score: {ai_engagement.get('engagement_score', 'N/A')}/100
+                    - Predicted Reach: {ai_engagement.get('predicted_reach', 'N/A')}
+                    
+                    AI-PREDICTED AUDIENCE INSIGHTS:
+                    - Age Group: {ai_audience.get('age_group', 'N/A')}
+                    - Engagement Pattern: {ai_audience.get('engagement_pattern', 'N/A')}
+                    - Sentiment: {ai_audience.get('sentiment', 'N/A')}
+                    - Interest Topics: {', '.join(ai_audience.get('interest_topics', []))}
+                    
+                    Based on these predictions, explain:
+                    1. Why this content is predicted to perform at this level
+                    2. What elements contribute to the predicted engagement
+                    3. Suggestions to improve engagement score
+                    
                     Content: {hist['content'][:5000]}
                     """
                     summary = st_call_gemini(prompt, "personalization")

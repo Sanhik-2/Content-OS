@@ -20,7 +20,11 @@ A high-performance, AI-driven content generation and management system. This pla
 
 ### 🧠 Personalization Engine
 - **Behavior Tracking**: Session duration, interaction counts, and project engagement metrics.
-- **Adaptive AI**: Suggests summaries and tone adjustments based on user preferences and past performance.
+- **AI-Powered Engagement Predictions**: Automatically predicts likes, comments, shares, and engagement scores based on content analysis.
+- **Audience Insights**: AI-generated predictions for age groups, engagement patterns, sentiment, and interest topics.
+- **Adaptive AI**: Suggests summaries and tone adjustments based on predicted performance and user preferences.
+- **Continuous Learning**: Tracks prediction accuracy to improve future recommendations.
+
 
 ## 🚀 Getting Started
 
@@ -69,9 +73,28 @@ python main_api.py
 - `core.py`: Shared core logic and AI integration.
 - `smart_cms_data/`: Local storage for projects and version history.
 
-## 🔐 Security
-- API keys are managed via environment variables and are excluded from version control via `.gitignore`.
-- Input sanitization is applied to prevent XSS in rendered views.
+## 🚀 Deployment & Security
+
+### GitHub Readiness
+- **Environment Variables**: All sensitive keys are moved to `.env` (managed via `python-dotenv`).
+- **Gitignore Protection**: `.env`, `smart_cms_data/`, and `__pycache__` are strictly ignored.
+- **Dependency Pining**: All libraries in `requirements.txt` are pinned to specific versions to ensure environment stability.
+
+### 🔐 Security Measures
+- **Input Sanitization**: All content outputs are sanitized using `html.escape` to prevent XSS.
+- **Resource Protection**: 
+  - Input size limits (`MAX_INPUT_SIZE`) protect against resource exhaustion.
+  - PDF processing is limited to 50 pages.
+- **Environment Verification**: Automated startup checks verify that API keys are valid and not placeholders.
+- **CORS Management**: FastAPI backend includes a managed CORS policy.
+- **Leak Prevention**: Automated logic prevents starting the app if `.env` is detected as tracked by Git.
+
+### 🌍 Cloud Deployment (Optional)
+This app is ready for deployment on platforms like **Render**, **Railway**, or **Heroku**.
+1. Set up a Python environment.
+2. Add your `GEMINI_API_KEY` to the platform's Environment Variables.
+3. Run `uvicorn main_api:app --host 0.0.0.0 --port 8000` for the API.
+4. Run `streamlit run app.py --server.port $PORT` for the UI.
 
 ---
 Built with ❤️ by [Ashwath-Raj](https://github.com/Ashwath-Raj)

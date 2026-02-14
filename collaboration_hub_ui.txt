@@ -1,0 +1,117 @@
+
+# --- 👥 COLLABORATION HUB ---
+elif engine == "👥 Collaboration Hub":
+    st.title("👥 Collaboration Hub")
+    st.markdown("**Manage teams, share projects, and control permissions**")
+    
+    tab1, tab2, tab3 = st.tabs(["🌐 My Projects", "➕ Invite Users", "📥 Pending Invites"])
+    
+    with tab1:
+        st.subheader("Projects I Own or Collaborate On")
+        
+        all_projects = cms.list_all_content()
+        current_user = st.session_state['user']
+        
+        # Filter projects where user is involved
+        my_projects = [p for p in all_projects if current_user in p.get('collaborators', {})]
+        
+        if not my_projects:
+            st.info("No collaborative projects yet. Create one in CMS Library!")
+        else:
+            for project in my_projects:
+                with st.expander(f"📁 {project.get('title', 'Untitled')} - {project.get('folder', 'General')}"):
+                    pid = project['project_id']
+                    folder = project['folder']
+                    
+                    # Project Info
+                    st.caption(f"**Project ID:** `{pid}`")
+                    my_role = project.get('collaborators', {}).get(current_user, "Viewer")
+                    st.caption(f"**My Role:** {my_role}")
+                    
+                    # Collaborators
+                    st.markdown("**Team Members:**")
+                    collab_df_data = []
+                    for user, role in project.get('collaborators', {}).items():
+                        collab_df_data.append({"User": user, "Role": role})
+                    if collab_df_data:
+                        st.table(collab_df_data)
+                    
+                    # Management (Developer/Co-Developer only)
+                    is_developer = project.get('owner') == current_user or my_role == "Co-Developer"
+                    
+                    if is_developer:
+                        st.markdown("---")
+                        st.markdown("**🔧 Management Tools**")
+                        
+                        # Generate Share Link
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            share_role = st.selectbox("Link Role", ["Viewer", "Editor", "Co-Developer"], 
+                                                     key=f"share_{pid}")
+                        with col2:
+                            if st.button("🔗 Create", key=f"create_link_{pid}"):
+                                token = sharing.generate_share_link(folder, pid, current_user, share_role)
+                                share_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8501')}?invite={token}"
+                                st.code(share_url, language="text")
+                                st.success("✅ Share link created!")
+                        
+                        # Show active links
+                        active_links = sharing.get_project_links(folder, pid)
+                        if active_links:
+                            st.caption("**Active Links:**")
+                            for link in active_links:
+                                c1, c2, c3 = st.columns([2, 1, 1])
+                                c1.text(f"🔗 {link['token'][:10]}... ({link['default_role']})")
+                                c2.text(f"{link['created_at'][:10]}")
+                                if c3.button("❌", key=f"revoke_{link['token']}"):
+                                    sharing.revoke_share_link(link['token'])
+                                    st.success("Link revoked!")
+                                    st.rerun()
+    
+    with tab2:
+        st.subheader("➕ Invite Users to Projects")
+        st.markdown("Search for a user by username and add them to your projects.")
+        
+        # User search
+        search_username = st.text_input("🔍 Username to Invite", placeholder="Enter exact username")
+        
+        if search_username:
+            user_exists = get_user(search_username)
+            if user_exists:
+                st.success(f"✅ User **{search_username}** found!")
+                
+                # Select project to add to
+                owned_projects = [p for p in all_projects if p.get('owner') == current_user]
+                
+                if owned_projects:
+                    project_options = {f"{p.get('title', 'Untitled')} ({p['folder']})": p for p in owned_projects}
+                    selected_proj = st.selectbox("Select Project", list(project_options.keys()))
+                    selected_project = project_options[selected_proj]
+                    
+                    invite_role = st.selectbox("Assign Role", ["Viewer", "Editor", "Co-Developer"])
+                    
+                    if st.button("➕ Add to Project", use_container_width=True):
+                        pid = selected_project['project_id']
+                        folder = selected_project['folder']
+                        meta = cms.get_meta(folder, pid)
+                        
+                        if meta:
+                            if search_username not in meta.get('collaborators', {}):
+                                meta.setdefault('collaborators', {})[search_username] = invite_role
+                                with open(os.path.join(CMS_ROOT, folder, pid, "meta.json"), "w") as f:
+                                    json.dump(meta, f, indent=2)
+                                st.success(f"🎉 {search_username} added as {invite_role}!")
+                                st.balloons()
+                            else:
+                                existing_role = meta['collaborators'][search_username]
+                                st.info(f"{search_username} is already a {existing_role}")
+                else:
+                    st.warning("You don't own any projects yet. Create one in CMS Library!")
+            else:
+                st.error("❌ User not found. They must register first.")
+    
+    with tab3:
+        st.subheader("📥 Pending Invitations")
+        st.info("Feature coming soon: See projects you've been invited to but haven't accepted yet!")
+        st.caption("Tip: You can accept invites immediately by clicking on share links sent to you.")
+

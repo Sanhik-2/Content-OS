@@ -298,6 +298,7 @@ from core import (
 
 # Authentication Imports
 from auth import authenticate_user, get_user, create_user
+from project_sharing import sharing
 
 # 3. Check API Key
 sec_ok, sec_msg = check_env_security()
@@ -456,6 +457,37 @@ def login_screen():
 if not st.session_state['authenticated']:
     login_screen()
 
+# Handle invite code from URL
+query_params = st.query_params
+if 'invite' in query_params and st.session_state['authenticated']:
+    invite_token = query_params['invite']
+    link_data = sharing.validate_share_link(invite_token)
+    
+    if link_data:
+        folder = link_data['folder']
+        project_id = link_data['project_id']
+        default_role = link_data['default_role']
+        
+        # Add user to project
+        meta = cms.get_meta(folder, project_id)
+        if meta:
+            current_user = st.session_state['user']
+            if current_user not in meta.get('collaborators', {}):
+                meta.setdefault('collaborators', {})[current_user] = default_role
+                import json
+                with open(os.path.join(CMS_ROOT, folder, project_id, "meta.json"), "w") as f:
+                    json.dump(meta, f, indent=2)
+                st.success(f"🎉 You've joined the project as {default_role}!")
+                st.balloons()
+                # Clear invite from URL
+                st.query_params.clear()
+            else:
+                st.info(f"You're already a member of this project ({meta['collaborators'][current_user]}).")
+        else:
+            st.error("❌ Project not found.")
+    else:
+        st.error("❌ Invalid or expired invite link.")
+
 tracker = UserBehaviorTracker()
 
 # --- UI STATE MANAGEMENT ---
@@ -477,7 +509,8 @@ with st.sidebar:
     st.title("⚡ Content OS")
     st.markdown("---")
     
-    engine = st.radio("Core Engine", ["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"], index=["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"].index(st.session_state['nav_engine']))
+    engine = st.radio("Core Engine", ["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine", "👥 Collaboration Hub"], 
+                     index=["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine", "👥 Collaboration Hub"].index(st.session_state['nav_engine']))
     st.session_state['nav_engine'] = engine
     
     st.markdown("---")
@@ -705,18 +738,66 @@ if engine == "CMS Library":
             st.markdown(f"## {p.get('title', '--None--')}")
             st.code(f"Share ID: {pid}", language="text")
             
-            with st.expander("👥 Collaborators & Permissions"):
+            with st.expander("👥 Collaborators & Sharing", expanded=True):
                 owner_id = meta.get('owner', '--None--')
                 owner_role = meta.get('collaborators', {}).get(owner_id, "Developer")
                 st.write(f"**Owner:** {owner_id} ({owner_role})")
                 st.write("**Collaborator Roles:**")
                 st.json(meta.get('collaborators', {}))
                 
-                if meta.get('owner') == st.session_state['user']:
-                    new_collab = st.text_input("Invite Collaborator (User ID)")
-                    role = st.selectbox("Role", ["Editor", "Co-Developer", "Viewer"])
-                    if st.button("➕ Grant Access"):
-                        meta.get('collaborators', {})[new_collab] = role
+                # Only Developer/Co-Developer can manage sharing
+                current_user_role = meta.get('collaborators', {}).get(st.session_state['user'], "Viewer")
+                is_developer = meta.get('owner') == st.session_state['user'] or current_user_role == "Co-Developer"
+                
+                if is_developer:
+                    st.markdown("---")
+                    st.subheader("📤 Share Project")
+                    
+                    # Generate shareable links
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        share_role = st.selectbox("Default Role for Link", ["Viewer", "Editor", "Co-Developer"], key=f"share_role_{pid}")
+                    with col2:
+                        if st.button("🔗 Create Link", use_container_width=True):
+                            token = sharing.generate_share_link(folder, pid, st.session_state['user'], share_role)
+                            share_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8501')}?invite={token}"
+                            st.code(share_url, language="text")
+                            st.success("✅ Link created! Share it with your team.")
+                    
+                    # Show active links
+                    active_links = sharing.get_project_links(folder, pid)
+                    if active_links:
+                        st.write("**Active Share Links:**")
+                        for link in active_links:
+                            c1, c2, c3 = st.columns([2, 1, 1])
+                            c1.caption(f"🔗 `{link['token'][:8]}...` ({link['default_role']})")
+                            c2.caption(f"Created: {link['created_at'][:10]}")
+                            if c3.button("❌ Revoke", key=f"revoke_{link['token']}"):
+                                sharing.revoke_share_link(link['token'])
+                                st.rerun()
+                    
+                    st.markdown("---")
+                    st.subheader("➕ Add User Directly")
+                    
+                    # Manual user addition
+                    new_collab = st.text_input("Username to Add", key=f"manual_add_{pid}")
+                    role = st.selectbox("Role", ["Viewer", "Editor", "Co-Developer"], key=f"role_{pid}")
+                    
+                    if st.button("➕ Grant Access", use_container_width=True):
+                        if new_collab and new_collab != st.session_state['user']:
+                            # Verify user exists
+                            user_exists = get_user(new_collab)
+                            if user_exists:
+                                meta.setdefault('collaborators', {})[new_collab] = role
+                                # Update meta
+                                with open(os.path.join(CMS_ROOT, folder, pid, "meta.json"), "w") as f:
+                                    json.dump(meta, f, indent=2)
+                                st.success(f"✅ {new_collab} added as {role}!")
+                                st.rerun()
+                            else:
+                                st.error("❌ User not found. They must register first.")
+                        else:
+                            st.warning("Enter a valid username.")
                         # Update meta
                         import json
                         with open(os.path.join(CMS_ROOT, folder, pid, "meta.json"), "w") as f:
@@ -770,27 +851,31 @@ if engine == "CMS Library":
             if history:
                 st.markdown(f"## Editing: {p.get('title', '--None--')}")
                 latest = history[0]
+                
+                # Check permissions
+                current_user_role = meta.get('collaborators', {}).get(st.session_state['user'], "Viewer")
+                can_edit_content = sharing.can_edit(current_user_role)
+                can_push_main = sharing.can_push_to_main(current_user_role)
+                
+                if not can_edit_content:
+                    st.warning("🔒 You have Viewer permissions. Cannot edit.")
+                    st.stop()
+                
+                # Permission info
+                if not can_push_main:
+                    st.info(f"📝 **{current_user_role}**: Changes save to your branch")
+                
                 edited = st.text_area("Content", latest.get('content', ""), height=500)
                 
                 ec1, ec2, ec3 = st.columns([2, 2, 1])
                 new_status = ec1.selectbox("Status", ContentManager.LIFECYCLE_STAGES, index=ContentManager.LIFECYCLE_STAGES.index(latest['status']))
                 msg = ec2.text_input("Commit Message", "Manual update from editor")
                 
-                # Permission Check
-                meta = cms.get_meta(folder, pid)
-                if not meta:
-                    is_authorized = False
-                else:
-                    is_authorized = meta.get('owner') == st.session_state['user'] or meta.get('collaborators', {}).get(st.session_state['user']) in ['Editor', 'Co-Developer']
-                
-                if ec3.button("💾 Save Changes", use_container_width=True, disabled=not is_authorized):
-                    if is_authorized:
-                        cms.commit_version(folder, pid, edited, st.session_state['user'], p['title'], latest.get('tags', []), new_status, msg)
-                        st.toast("Pushed to your branch/main!")
-                        if 'show_editor' in st.session_state: del st.session_state['show_editor']
-                        st.rerun()
-                    else:
-                        st.error("Access Denied.")
+                if ec3.button("💾 Save", use_container_width=True):
+                    cms.commit_version(folder, pid, edited, st.session_state['user'], p['title'], latest.get('tags', []), new_status, msg)
+                    st.toast("✅ Saved!" if can_push_main else f"✅ Saved to branch!")
+                    if 'show_editor' in st.session_state: del st.session_state['show_editor']
+                    st.rerun()
                         
                 if not is_authorized:
                     st.warning("⚠️ View-Only Mode: You don't have permission to commit changes.")
@@ -834,6 +919,123 @@ if engine == "CMS Library":
                 <p>Select a project to view history and manage content.</p>
             </div>
         """, unsafe_allow_html=True)
+
+
+# ================= 👥 COLLABORATION HUB =================
+elif engine == "👥 Collaboration Hub":
+    st.title("👥 Collaboration Hub")
+    st.markdown("**Manage teams, share projects, and control permissions**")
+    
+    tab1, tab2, tab3 = st.tabs(["🌐 My Projects", "➕ Invite Users", "📥 Pending Invites"])
+    
+    with tab1:
+        st.subheader("Projects I Own or Collaborate On")
+        
+        all_projects = cms.list_all_content()
+        current_user = st.session_state['user']
+        
+        # Filter projects where user is involved
+        my_projects = [p for p in all_projects if current_user in p.get('collaborators', {})]
+        
+        if not my_projects:
+            st.info("No collaborative projects yet. Create one in CMS Library!")
+        else:
+            for project in my_projects:
+                with st.expander(f"📁 {project.get('title', 'Untitled')} - {project.get('folder', 'General')}"):
+                    pid = project['project_id']
+                    folder = project['folder']
+                    
+                    # Project Info
+                    st.caption(f"**Project ID:** `{pid}`")
+                    my_role = project.get('collaborators', {}).get(current_user, "Viewer")
+                    st.caption(f"**My Role:** {my_role}")
+                    
+                    # Collaborators
+                    st.markdown("**Team Members:**")
+                    collab_df_data = []
+                    for user, role in project.get('collaborators', {}).items():
+                        collab_df_data.append({"User": user, "Role": role})
+                    if collab_df_data:
+                        st.table(collab_df_data)
+                    
+                    # Management (Developer/Co-Developer only)
+                    is_developer = project.get('owner') == current_user or my_role == "Co-Developer"
+                    
+                    if is_developer:
+                        st.markdown("---")
+                        st.markdown("**🔧 Management Tools**")
+                        
+                        # Generate Share Link
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            share_role = st.selectbox("Link Role", ["Viewer", "Editor", "Co-Developer"], 
+                                                     key=f"share_{pid}")
+                        with col2:
+                            if st.button("🔗 Create", key=f"create_link_{pid}"):
+                                token = sharing.generate_share_link(folder, pid, current_user, share_role)
+                                share_url = f"{os.getenv('APP_BASE_URL', 'http://localhost:8501')}?invite={token}"
+                                st.code(share_url, language="text")
+                                st.success("✅ Share link created!")
+                        
+                        # Show active links
+                        active_links = sharing.get_project_links(folder, pid)
+                        if active_links:
+                            st.caption("**Active Links:**")
+                            for link in active_links:
+                                c1, c2, c3 = st.columns([2, 1, 1])
+                                c1.text(f"🔗 {link['token'][:10]}... ({link['default_role']})")
+                                c2.text(f"{link['created_at'][:10]}")
+                                if c3.button("❌", key=f"revoke_{link['token']}"):
+                                    sharing.revoke_share_link(link['token'])
+                                    st.success("Link revoked!")
+                                    st.rerun()
+    
+    with tab2:
+        st.subheader("➕ Invite Users to Projects")
+        st.markdown("Search for a user by username and add them to your projects.")
+        
+        # User search
+        search_username = st.text_input("🔍 Username to Invite", placeholder="Enter exact username")
+        
+        if search_username:
+            user_exists = get_user(search_username)
+            if user_exists:
+                st.success(f"✅ User **{search_username}** found!")
+                
+                # Select project to add to
+                owned_projects = [p for p in all_projects if p.get('owner') == current_user]
+                
+                if owned_projects:
+                    project_options = {f"{p.get('title', 'Untitled')} ({p['folder']})": p for p in owned_projects}
+                    selected_proj = st.selectbox("Select Project", list(project_options.keys()))
+                    selected_project = project_options[selected_proj]
+                    
+                    invite_role = st.selectbox("Assign Role", ["Viewer", "Editor", "Co-Developer"])
+                    
+                    if st.button("➕ Add to Project", use_container_width=True):
+                        pid = selected_project['project_id']
+                        folder = selected_project['folder']
+                        meta = cms.get_meta(folder, pid)
+                        
+                        if meta:
+                            if search_username not in meta.get('collaborators', {}):
+                                meta.setdefault('collaborators', {})[search_username] = invite_role
+                                with open(os.path.join(CMS_ROOT, folder, pid, "meta.json"), "w") as f:
+                                    json.dump(meta, f, indent=2)
+                                st.success(f"🎉 {search_username} added as {invite_role}!")
+                                st.balloons()
+                            else:
+                                existing_role = meta['collaborators'][search_username]
+                                st.info(f"{search_username} is already a {existing_role}")
+                else:
+                    st.warning("You don't own any projects yet. Create one in CMS Library!")
+            else:
+                st.error("❌ User not found. They must register first.")
+    
+    with tab3:
+        st.subheader("📥 Pending Invitations")
+        st.info("Feature coming soon: See projects you've been invited to but haven't accepted yet!")
+        st.caption("Tip: You can accept invites immediately by clicking on share links sent to you.")
 
 # ================= CREATION ENGINE =================
 elif engine == "Creation Engine":
@@ -1295,7 +1497,8 @@ elif engine == "Personalization Engine":
                         
                         cms.commit_version(
                             p_data['folder'], p_data['project_id'], 
-                            current_ver['content'], 
+                            current_ver['content'],
+                            st.session_state['user'],
                             p_data['title'], 
                             p_data['tags'], 
                             current_ver['status'], 
@@ -1423,7 +1626,7 @@ elif engine == "Personalization Engine":
             
             # Save Controls
             if st.button("💾 Save Changes to CSM"):
-                cms.commit_version(p_data['folder'], p_data['project_id'], new_content, p_data['title'], p_data['tags'], "Draft", "Personalized/Smart Edit")
+                cms.commit_version(p_data['folder'], p_data['project_id'], new_content, st.session_state['user'], p_data['title'], p_data['tags'], "Draft", "Personalized/Smart Edit")
                 st.toast("Changes Saved!")
                 tracker.log_interaction("save_edit")
                 time.sleep(1)

@@ -7,7 +7,8 @@ import hashlib
 import requests
 import html
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from pypdf import PdfReader
 import hmac
 import secrets
@@ -109,10 +110,12 @@ def call_gemini(prompt, task_type, model_name='gemini-1.5-flash'):
         return f"Error: API Key for '{task_type}' is missing."
     
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
-        # Final sanitization of output
+        # Use new google-genai client
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
         return response.text
     except Exception as e:
         err_msg = str(e)

@@ -20,10 +20,16 @@ from core import (
 
 from auth import (
     Token, User, authenticate_user, create_access_token, 
-    get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
+    get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES, create_user, get_user
 )
 
+from oauth_providers import oauth, google, linkedin, github, get_oauth_providers
+
 app = FastAPI(title="Content OS API", version="4.1")
+
+# Add session middleware for OAuth
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("AUTH_SECRET_KEY", "default_secret_change_me"))
 
 # Security: CORS Policy (More restrictive for production)
 app.add_middleware(
@@ -110,6 +116,64 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
 @app.get("/users/me/", response_model=User)
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
+
+# --- OAuth Endpoints ---
+
+@app.get("/auth/{provider}")
+async def oauth_login(provider: str, request: Request):
+    """Initiate OAuth flow for Google, LinkedIn, or GitHub"""
+    providers = get_oauth_providers()
+    if provider not in providers:
+        raise HTTPException(status_code=400, detail="Invalid OAuth provider")
+    
+    redirect_uri = request.url_for('oauth_callback', provider=provider)
+    return await providers[provider].authorize_redirect(request, redirect_uri)
+
+@app.get("/auth/{provider}/callback")
+async def oauth_callback(provider: str, request: Request):
+    """Handle OAuth callback and create JWT token"""
+    providers = get_oauth_providers()
+    if provider not in providers:
+        raise HTTPException(status_code=400, detail="Invalid OAuth provider")
+    
+    try:
+        token = await providers[provider].authorize_access_token(request)
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            raise HTTPException(status_code=400, detail="Failed to fetch user info")
+        
+        # Extract email and create/get user
+        email = user_info.get('email')
+        username = email.split('@')[0] if email else user_info.get('sub')
+        
+        # Check if user exists
+        existing_user = get_user(username)
+        if not existing_user:
+            # Auto-create user from OAuth
+            create_user({
+                "username": username,
+                "email": email,
+                "full_name": user_info.get('name', username),
+                "password": os.urandom(32).hex(),  # Random password for OAuth users
+                "disabled": False,
+                "role": "creator"
+            })
+        
+        # Create JWT token
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": username}, expires_delta=access_token_expires
+        )
+        
+        # Redirect to frontend with token
+        return RedirectResponse(
+            url=f"/?token={access_token}",
+            status_code=302
+        )
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Endpoints ---
 

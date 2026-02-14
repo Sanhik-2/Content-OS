@@ -18,7 +18,7 @@ load_dotenv(override=True)
 
 # --- Dependency Check ---
 try:
-    import google.generativeai as genai
+    from google import genai
     import requests
     from bs4 import BeautifulSoup
     from pypdf import PdfReader
@@ -415,9 +415,16 @@ def login_screen():
             st.markdown("---")
             st.caption("Or continue with")
             oc1, oc2, oc3 = st.columns(3)
-            if oc1.button("🌐 Google"): st.toast("Google OAuth Redirecting...")
-            if oc2.button("💼 LinkedIn"): st.toast("LinkedIn OAuth Redirecting...")
-            if oc3.button("🐙 GitHub"): st.toast("GitHub OAuth Redirecting...")
+            
+            # OAuth buttons redirect to FastAPI endpoints
+            api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
+            
+            if oc1.button("🌐 Google"):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={api_base}/auth/google">', unsafe_allow_html=True)
+            if oc2.button("💼 LinkedIn"):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={api_base}/auth/linkedin">', unsafe_allow_html=True)
+            if oc3.button("🐙 GitHub"):
+                st.markdown(f'<meta http-equiv="refresh" content="0; url={api_base}/auth/github">', unsafe_allow_html=True)
             
         with tab2:
             new_user = st.text_input("New Username")
@@ -530,7 +537,7 @@ with st.sidebar:
                             text = "Error: Could not decode text."
                 
                 if text:
-                    cms.create_project(imp_title, imp_folder, text, current_user_id, tags=["Imported", "Ingestion"], extra_meta=extra_meta)
+                    cms.create_project(imp_title, imp_folder, text, st.session_state['user'], tags=["Imported", "Ingestion"], extra_meta=extra_meta)
                     st.success(f"Imported '{imp_title}'!")
                     if extra_meta.get('confidence'):
                         st.caption(f"Confidence: {extra_meta['confidence']}")
@@ -705,7 +712,7 @@ if engine == "CMS Library":
                 st.write("**Collaborator Roles:**")
                 st.json(meta.get('collaborators', {}))
                 
-                if meta.get('owner') == current_user_id:
+                if meta.get('owner') == st.session_state['user']:
                     new_collab = st.text_input("Invite Collaborator (User ID)")
                     role = st.selectbox("Role", ["Editor", "Co-Developer", "Viewer"])
                     if st.button("➕ Grant Access"):
@@ -735,10 +742,10 @@ if engine == "CMS Library":
                 st.markdown("---")
                 
                 # Developer Tools: Merging
-                if sel_branch != "main" and meta.get('owner') == current_user_id:
+                if sel_branch != "main" and meta.get('owner') == st.session_state['user']:
                     if st.button("✨ Merge this version to Main", use_container_width=True):
                         with st.spinner("Merging..."):
-                            cms.merge_branch(folder, pid, sel_branch, view_version['version_id'], current_user_id)
+                            cms.merge_branch(folder, pid, sel_branch, view_version['version_id'], st.session_state['user'])
                             st.success("Merged successfully!")
                             st.rerun()
 
@@ -774,11 +781,11 @@ if engine == "CMS Library":
                 if not meta:
                     is_authorized = False
                 else:
-                    is_authorized = meta.get('owner') == current_user_id or meta.get('collaborators', {}).get(current_user_id) in ['Editor', 'Co-Developer']
+                    is_authorized = meta.get('owner') == st.session_state['user'] or meta.get('collaborators', {}).get(st.session_state['user']) in ['Editor', 'Co-Developer']
                 
                 if ec3.button("💾 Save Changes", use_container_width=True, disabled=not is_authorized):
                     if is_authorized:
-                        cms.commit_version(folder, pid, edited, current_user_id, p['title'], latest.get('tags', []), new_status, msg)
+                        cms.commit_version(folder, pid, edited, st.session_state['user'], p['title'], latest.get('tags', []), new_status, msg)
                         st.toast("Pushed to your branch/main!")
                         if 'show_editor' in st.session_state: del st.session_state['show_editor']
                         st.rerun()
@@ -976,7 +983,7 @@ elif engine == "Creation Engine":
                         if save_folder == "General" and not os.path.exists(os.path.join(CMS_ROOT, "General")):
                             os.makedirs(os.path.join(CMS_ROOT, "General"))
                         
-                        cms.create_project(title, save_folder, result, current_user_id, tags, extra_meta=gen_meta)
+                        cms.create_project(title, save_folder, result, st.session_state['user'], tags, extra_meta=gen_meta)
                         st.success(f"Generated & Saved to '{save_folder}'!")
 
     if st.session_state['generated_content']:
@@ -996,7 +1003,7 @@ elif engine == "Creation Engine":
                 gen_meta = {"mode": mode, "source_type": src_type, "tone": tone, "platform": platform}
                 title = f"{mode}: {audience[:15]}... ({datetime.datetime.now().strftime('%H:%M')})"
                 
-                cms.create_project(title, target_f, edited, current_user_id, tags, extra_meta=gen_meta)
+                cms.create_project(title, target_f, edited, st.session_state['user'], tags, extra_meta=gen_meta)
                 st.toast(f"Saved to {target_f}!")
                 st.rerun()
 
@@ -1205,7 +1212,7 @@ elif engine == "Transformation Engine":
                         folder=meta['folder'],
                         project_id=meta['project_id'],
                         content=edited,
-                        user_id=current_user_id,
+                        user_id=st.session_state['user'],
                         title=meta.get('title', '--None--'),
                         tags=tags,
                         status="Draft",

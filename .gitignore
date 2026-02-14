@@ -3,8 +3,10 @@
 [ ]*.env
 key_check.txt
 status_out.txt
+pip_output.txt
 smart_cms_data/
 cms_data/
+security_data/
 __pycache__/
 *.pyc
 node_modules/

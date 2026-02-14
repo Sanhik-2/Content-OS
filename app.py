@@ -9,6 +9,7 @@ import hashlib
 import io
 import difflib
 import html
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -227,6 +228,34 @@ st.markdown("""
     ::-webkit-scrollbar-track { background: var(--bg-color); }
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--accent-blue); }
+
+    /* Flashcard Style */
+    .flashcard {
+        background: linear-gradient(135deg, #1e1e22 0%, #141416 100%);
+        border: 1px solid var(--glass-border);
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 20px;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        transition: transform 0.3s;
+        cursor: pointer;
+    }
+    .flashcard:hover { transform: scale(1.02); border-color: var(--accent-blue); }
+    .flashcard-q { font-size: 1.2rem; font-weight: 700; color: var(--accent-blue); margin-bottom: 15px; font-family: 'Outfit', sans-serif; }
+    .flashcard-a { font-size: 1rem; color: var(--text-primary); opacity: 0.9; }
+
+    /* Modal Styling */
+    div[data-testid="stDialog"] {
+        background-color: rgba(5, 5, 5, 0.95);
+        backdrop-filter: blur(20px);
+        border: 1px solid var(--glass-border);
+        border-radius: 24px;
+    }
 
 </style>
 """, unsafe_allow_html=True)
@@ -549,6 +578,57 @@ if engine == "CMS Library":
     
     with col1:
         st.markdown("### Projects")
+        # --- PROJECT MODALS ---
+        @st.dialog("📄 Project Viewer", width="large")
+        def project_viewer(p):
+            folder, pid = p['folder'], p['project_id']
+            history = cms.get_history(folder, pid)
+            if history:
+                st.markdown(f"## {p['title']}")
+                version_options = {f"v.{v['timestamp'][11:16]} ({v['version_id'][:6]})": i for i, v in enumerate(history)}
+                v_sel = st.selectbox("Version History", options=list(version_options.keys()))
+                view_version = history[version_options[v_sel]]
+                
+                st.markdown("---")
+                st.markdown(view_version['content'])
+                st.markdown("---")
+                
+                c1, c2 = st.columns(2)
+                if c1.button("✏️ Edit Content", use_container_width=True):
+                    st.session_state['show_editor'] = p
+                    if 'show_viewer' in st.session_state: del st.session_state['show_viewer']
+                    st.rerun()
+                if c2.button("❌ Close", use_container_width=True):
+                    if 'show_viewer' in st.session_state: del st.session_state['show_viewer']
+                    st.rerun()
+
+        @st.dialog("✏️ Project Editor", width="large")
+        def project_editor(p):
+            folder, pid = p['folder'], p['project_id']
+            history = cms.get_history(folder, pid)
+            if history:
+                st.markdown(f"## Editing: {p['title']}")
+                latest = history[0]
+                edited = st.text_area("Content", latest['content'], height=500)
+                
+                ec1, ec2, ec3 = st.columns([2, 2, 1])
+                new_status = ec1.selectbox("Status", ContentManager.LIFECYCLE_STAGES, index=ContentManager.LIFECYCLE_STAGES.index(latest['status']))
+                msg = ec2.text_input("Commit Message", "Manual update from editor")
+                
+                if ec3.button("💾 Save Changes", use_container_width=True):
+                    cms.commit_version(folder, pid, edited, p['title'], latest.get('tags', []), new_status, msg)
+                    st.toast("Updated Successfully!")
+                    if 'show_editor' in st.session_state: del st.session_state['show_editor']
+                    st.rerun()
+                if st.button("⬅️ Back to Viewer"):
+                    st.session_state['show_viewer'] = p
+                    if 'show_editor' in st.session_state: del st.session_state['show_editor']
+                    st.rerun()
+
+        # Trigger Modals from State
+        if st.session_state.get('show_viewer'): project_viewer(st.session_state['show_viewer'])
+        if st.session_state.get('show_editor'): project_editor(st.session_state['show_editor'])
+
         projects = cms.list_all_content()
         for p in projects:
             if search_q.lower() in p['title'].lower() or search_q.lower() in str(p['tags']).lower():
@@ -563,129 +643,23 @@ if engine == "CMS Library":
                             📁 {sanitize_text(p['folder'])} • 🕒 {sanitize_text(p['last_modified'][:10])}
                         </small>
                         <div style="margin-top:8px;">
-                            <span style="font-size:0.8em; background:#eee; padding:2px 6px; border-radius:4px;">Drafts: {p.get('latest_metrics', {}).get('word_count', 0)} words</span>
+                            <span style="font-size:0.8em; background:rgba(30,144,255,0.1); color:var(--accent-blue); padding:2px 6px; border-radius:4px;">
+                                {p.get('latest_metrics', {}).get('word_count', 0)} words
+                            </span>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button("Edit Project", key=f"btn_{p['project_id']}", use_container_width=True):
-                        st.session_state['active_project'] = p
+                    if st.button("🔍 Open Project", key=f"btn_{p['project_id']}", use_container_width=True):
+                        st.session_state['show_viewer'] = p
                         st.rerun()
 
     with col2:
-        if st.session_state['active_project']:
-            active_meta = st.session_state['active_project']
-            folder = active_meta['folder']
-            pid = active_meta['project_id']
-            
-            history = cms.get_history(folder, pid)
-            # Ensure we have data
-            if not history:
-                st.error("No history found for this project.")
-            else:
-                st.subheader(f"✏️ Editor: {active_meta['title']}")
-                
-                # --- LIFECYCLE & VERSION BAR ---
-                c1, c2, c3 = st.columns([1, 2, 1])
-                
-                # Version Dropdown (The key requested feature)
-                version_options = {f"v.{v['timestamp'][11:16]} ({v['version_id'][:6]})": i for i, v in enumerate(history)}
-                selected_v_idx = c1.selectbox("Version History", options=list(version_options.keys()), index=0)
-                view_version = history[version_options[selected_v_idx]]
-                
-                # Status
-                new_status = c3.selectbox("Status", ContentManager.LIFECYCLE_STAGES, index=ContentManager.LIFECYCLE_STAGES.index(view_version['status']))
-                
-                # --- METADATA PANEL (New Feature) ---
-                st.markdown(f"""
-                <div class="meta-box">
-                    <b>📊 Metadata</b><br>
-                    Words: {view_version.get('metrics', {}).get('word_count', 0)} | 
-                    Chars: {view_version.get('metrics', {}).get('char_count', 0)} | 
-                    Reading Time: {view_version.get('metrics', {}).get('read_time', '0 min')} <br>
-                    <i>Generated Info: {view_version.get('extra_meta', {}).get('mode', 'Manual Edit')}</i>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # --- DIFF CHECKER ---
-                with st.expander("🔍 Compare Versions"):
-                    compare_idx = st.selectbox("Compare against:", ["None"] + list(version_options.keys()), index=0)
-                    if compare_idx != "None":
-                        comp_v = history[version_options[compare_idx]]
-                        diff = difflib.unified_diff(
-                            comp_v['content'].splitlines(),
-                            view_version['content'].splitlines(),
-                            fromfile=f"Version {comp_v['version_id'][:6]}",
-                            tofile=f"Version {view_version['version_id'][:6]}",
-                            lineterm=''
-                        )
-                        st.code("\n".join(diff), language="diff")
-
-                # --- IMPORT EXTERNAL ---
-                with st.expander("📤 Import / Replace Content"):
-                    uploaded_import = st.file_uploader("Upload File to Replace Current Content", type=['txt', 'md', 'json'])
-                    if uploaded_import:
-                        stringio = io.StringIO(uploaded_import.getvalue().decode("utf-8"))
-                        view_version['content'] = stringio.read()
-                        st.info("Content loaded from file. Review below before committing.")
-
-                # --- EDITOR AREA ---
-                edit_content = st.text_area("", view_version['content'], height=600, label_visibility="collapsed")
-                
-                # --- FOOTER ACTIONS ---
-                fc1, fc2, fc3 = st.columns([2, 2, 1])
-                edit_tags = fc1.text_input("Tags", ", ".join(view_version.get('tags', [])))
-                commit_msg = fc2.text_input("Commit Message", placeholder="Reason for change...")
-                
-                if fc3.button("💾 Commit", use_container_width=True):
-                    tag_list = [t.strip() for t in edit_tags.split(",") if t.strip()]
-                    cms.commit_version(folder, pid, edit_content, active_meta['title'], tag_list, new_status, commit_msg or "Update", extra_meta=view_version.get('extra_meta', {}))
-                    st.toast("Saved successfully!", icon="✅")
-                    time.sleep(1)
-                    st.rerun()
-                
-                # --- EXPORT ---
-                st.markdown("### 📤 Export Content")
-                ec1, ec2, ec3, ec4 = st.columns(4)
-                
-                with ec1:
-                    st.download_button("📥 Markdown", edit_content, 
-                        file_name=f"{active_meta['title']}.md", use_container_width=True)
-                
-                with ec2:
-                    st.download_button("🌍 Website (HTML)", get_web_boilerplate(active_meta['title'], edit_content), 
-                        file_name=f"{active_meta['title']}_web.html", mime="text/html", use_container_width=True)
-                
-                with ec3:
-                    try:
-                        docx_data = export_to_docx(active_meta['title'], edit_content)
-                        st.download_button("📄 Word Document", docx_data, 
-                            file_name=f"{active_meta['title']}.docx", 
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                            use_container_width=True)
-                    except Exception as e:
-                        st.error(f"Docx Error: {e}")
-                
-                with ec4:
-                    try:
-                        pdf_data = export_to_pdf(active_meta['title'], edit_content)
-                        st.download_button("📕 PDF File", pdf_data, 
-                            file_name=f"{active_meta['title']}.pdf", mime="application/pdf",
-                            use_container_width=True)
-                    except Exception as e:
-                        st.error(f"PDF Error: {e}")
-                
-                # Additional Export: JSON
-                json_data = json.dumps({
-                    "title": active_meta['title'],
-                    "tags": active_meta.get('tags', []),
-                    "status": active_meta.get('status', 'Draft'),
-                    "content": edit_content,
-                    "exported_at": str(datetime.datetime.now())
-                }, indent=4)
-                st.download_button("📦 Export JSON Metadata", json_data, 
-                    file_name=f"{active_meta['title']}_meta.json", mime="application/json")
-                
-                st.info("💡 Pro Tip: The HTML export is optimized for GitHub Pages and includes an AI prompt for further styling.")
+        st.markdown("""
+            <div class="content-card" style="height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-style: dashed; opacity: 0.6; text-align:center;">
+                <h3 style="margin:0;">Project Explorer</h3>
+                <p>Select a project to view history and manage content.</p>
+            </div>
+        """, unsafe_allow_html=True)
 
 # ================= CREATION ENGINE =================
 elif engine == "Creation Engine":
@@ -839,9 +813,30 @@ elif engine == "Creation Engine":
                         st.success(f"Generated & Saved to '{save_folder}'!")
 
     if st.session_state['generated_content']:
-        st.markdown("### Result")
-        st.markdown(st.session_state['generated_content'])
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+        st.markdown("### Preview Generated Content")
+        st.markdown(st.session_state['generated_content'][:1000] + ("..." if len(st.session_state['generated_content']) > 1000 else ""))
         
+        @st.dialog("Fine-tune & Save Generation")
+        def creation_edit_modal():
+            st.markdown(f"#### Mode: {mode}")
+            edited = st.text_area("Edit Content", st.session_state['generated_content'], height=500)
+            target_f = st.selectbox("Target Folder", cms.get_folders() or ["General"])
+            
+            if st.button("💾 Save to Library"):
+                # Auto-Tagging
+                tags = ["AI-Gen", mode, platform]
+                gen_meta = {"mode": mode, "source_type": src_type, "tone": tone, "platform": platform}
+                title = f"{mode}: {audience[:15]}... ({datetime.datetime.now().strftime('%H:%M')})"
+                
+                cms.create_project(title, target_f, edited, tags, extra_meta=gen_meta)
+                st.toast(f"Saved to {target_f}!")
+                st.rerun()
+
+        if st.button("✨ Edit & Commit to Library", use_container_width=True):
+            creation_edit_modal()
+        st.markdown("</div>", unsafe_allow_html=True)
+
         with st.expander("📥 Quick Export"):
             qec1, qec2, qec3, qec4 = st.columns(4)
             res_text = st.session_state['generated_content']
@@ -898,40 +893,100 @@ elif engine == "Transformation Engine":
         
         if st.button("🚀 Run Transformation"):
             with st.spinner("Transforming..."):
-                prompt = f"""
-                TASK: Content Transformation
-                SOURCE: {current[:15000]}
-                
-                PRIMARY GOAL: Convert to {trans_mode}
-                SECONDARY REFINEMENT: {sem_mode}
-                
-                Keep the core meaning but adapt strictly to the new format.
-                """
+                if trans_mode == "Quiz/Flashcards":
+                    prompt = f"""
+                    TASK: Generate Educational Flashcards
+                    SOURCE: {current[:15000]}
+                    FORMAT: Provide a JSON array of objects.
+                    Example: [{{ "question": "What is AI?", "answer": "Artificial Intelligence" }}]
+                    RULES: 
+                    1. Return ONLY the JSON. No markdown backticks.
+                    2. Ensure all quotes are double quotes.
+                    3. No trailing commas.
+                    4. Content should be in {sem_mode} style.
+                    """
+                else:
+                    prompt = f"""
+                    TASK: Content Transformation
+                    SOURCE: {current[:15000]}
+                    PRIMARY GOAL: Convert to {trans_mode}
+                    SECONDARY REFINEMENT: {sem_mode}
+                    Keep the core meaning but adapt strictly to the new format.
+                    """
                 res = st_call_gemini(prompt, "transformation")
                 st.session_state['transform_result'] = res
+                st.session_state['trans_mode_active'] = trans_mode
     
     if 'transform_result' in st.session_state and st.session_state['transform_result']:
         st.markdown("### Transformation Result")
-        st.markdown(st.session_state['transform_result'])
         
-        if st.button("💾 Save as New Version to Project History"):
-            with st.spinner("Saving..."):
-                # Save as new version
-                meta = opts[sel_proj]
-                # Inherit tags
-                tags = meta.get('tags', []) + [trans_mode, "Transformed"]
+        # --- FLASHCARD VISUALIZATION ---
+        if st.session_state.get('trans_mode_active') == "Quiz/Flashcards":
+            try:
+                raw = st.session_state['transform_result'].strip()
+                # Remove markdown backticks if AI included them
+                raw = re.sub(r'^```json\s*', '', raw)
+                raw = re.sub(r'\s*```$', '', raw)
                 
-                cms.commit_version(
-                    folder=meta['folder'],
-                    project_id=meta['project_id'],
-                    content=st.session_state['transform_result'],
-                    title=meta['title'],
-                    tags=tags,
-                    status="Draft",
-                    message=f"Transformed to {trans_mode} ({sem_mode})",
-                    extra_meta={"transformation_type": trans_mode}
-                )
-                st.success(f"Saved to project '{meta['title']}' history!")
+                # Use regex to find the JSON array if AI included commentary
+                match = re.search(r'\[.*\]', raw, re.DOTALL)
+                if match:
+                    json_str = match.group()
+                    # Handle HTML-encoded characters (like &quot; or &#x27;)
+                    json_str = html.unescape(json_str)
+                    
+                    # Pre-cleaning for trailing commas
+                    json_str = re.sub(r',\s*\]', ']', json_str)
+                    json_str = re.sub(r',\s*\}', '}', json_str)
+                    
+                    flashcards = json.loads(json_str)
+                    
+                    cols = st.columns(2)
+                    for idx, card in enumerate(flashcards):
+                        with cols[idx % 2]:
+                            st.markdown(f"""
+                            <div class="flashcard">
+                                <div class="flashcard-q">Q: {card.get('question', '...')}</div>
+                                <div class="flashcard-a">A: {card.get('answer', '...')}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                else:
+                    st.error("No valid flashcard data found in AI response.")
+                    st.code(raw)
+            except Exception as e:
+                st.error(f"JSON Parsing Error: {e}")
+                st.info("The AI response format was slightly off. You can see the raw output below.")
+                st.text_area("Developer Output (Raw)", st.session_state['transform_result'], height=200)
+        else:
+            st.markdown(st.session_state['transform_result'])
+        
+        # --- MODAL EDITOR ---
+        @st.dialog("Edit & Commit Transformation")
+        def edit_modal():
+            st.markdown(f"#### Refining: {sel_proj}")
+            edited = st.text_area("Content Editor", st.session_state['transform_result'], height=400)
+            
+            c1, c2 = st.columns(2)
+            msg = c1.text_input("Commit Message", "Refined via Transformation")
+            if c2.button("✅ Confirm & Save"):
+                with st.spinner("Saving..."):
+                    meta = opts[sel_proj]
+                    tags = meta.get('tags', []) + [st.session_state.get('trans_mode_active', 'Transformed')]
+                    cms.commit_version(
+                        folder=meta['folder'],
+                        project_id=meta['project_id'],
+                        content=edited,
+                        title=meta['title'],
+                        tags=tags,
+                        status="Draft",
+                        message=msg,
+                        extra_meta={"transformation_type": st.session_state.get('trans_mode_active')}
+                    )
+                    st.toast("Updated successfully!")
+                    st.rerun()
+
+        if st.button("✏️ Edit & Save as New Version"):
+            edit_modal()
 
 # ================= PERSONALIZATION ENGINE =================
 elif engine == "Personalization Engine":

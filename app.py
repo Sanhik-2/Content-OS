@@ -1253,7 +1253,13 @@ elif engine == "Transformation Engine":
     
     if sel_proj:
         meta = opts[sel_proj]
-        current = cms.get_history(meta['folder'], meta['project_id'])[0]['content']
+        history = cms.get_history(meta['folder'], meta['project_id'])
+        
+        if not history:
+            st.warning("⚠️ This project has no content yet. Please add content first in CMS Library.")
+            st.stop()
+        
+        current = history[0]['content']
         st.text_area("Source", current, height=150, disabled=True)
         
         col1, col2 = st.columns(2)
@@ -1510,9 +1516,15 @@ elif engine == "Personalization Engine":
                         st.rerun()
                 
                 # Display predictions if they exist
-                extra = cms.get_history(p_data['folder'], p_data['project_id'])[0].get('extra_meta', {})
-                engagement_data = extra.get('ai_engagement_prediction', {})
-                audience_data = extra.get('ai_audience_insights', {})
+                predict_history = cms.get_history(p_data['folder'], p_data['project_id'])
+                if not predict_history:
+                    st.warning("⚠️ No content history found for predictions.")
+                    engagement_data = {}
+                    audience_data = {}
+                else:
+                    extra = predict_history[0].get('extra_meta', {})
+                    engagement_data = extra.get('ai_engagement_prediction', {})
+                    audience_data = extra.get('ai_audience_insights', {})
                 
                 if engagement_data:
                     st.markdown("#### 📊 Predicted Engagement Metrics")

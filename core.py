@@ -423,7 +423,7 @@ class AuthManager:
     def _save(self):
         with open(self.USER_DB_PATH, 'w') as f: json.dump(self.users, f, indent=2)
 
-    def register(self, username, password, designation="Editor"):
+    def register(self, username, password):
         if username in self.users: return False, "User exists."
         salt = secrets.token_hex(8)
         pwd_hash = hashlib.sha256((password + salt).encode()).hexdigest()
@@ -433,7 +433,6 @@ class AuthManager:
             "id": user_id,
             "hash": pwd_hash,
             "salt": salt,
-            "designation": designation,
             "created_at": datetime.datetime.now().isoformat()
         }
         self._save()
@@ -472,7 +471,7 @@ class ContentManager:
         # Initial meta including collaborations
         meta = {
             "owner": owner_id,
-            "collaborators": {owner_id: "Owner"}, # Map of user_id -> designation
+            "collaborators": {owner_id: "Developer"}, # Creator is always Developer
             "project_id": project_id,
             "title": title,
             "folder": folder,
@@ -589,3 +588,24 @@ class ContentManager:
     def get_folders(self):
         if not os.path.exists(CMS_ROOT): return []
         return [d for d in os.listdir(CMS_ROOT) if os.path.isdir(os.path.join(CMS_ROOT, d))]
+
+    def merge_branch(self, folder, project_id, branch_user_id, version_id, developer_id):
+        """Allow a Developer to merge a collaborator's version into main."""
+        meta = self.get_meta(folder, project_id)
+        if not meta or meta.get('owner') != developer_id:
+            return False, "Unauthorized: Only the Developer can merge."
+            
+        # Path to the specific version in the branch
+        branch_path = os.path.join(self._get_path(folder, project_id), "branches", branch_user_id, f"v_{version_id}.json")
+        if not os.path.exists(branch_path):
+            return False, "Version not found in branch."
+            
+        with open(branch_path, "r") as f:
+            v_data = json.load(f)
+            
+        # Commit this to main
+        new_msg = f"Merged from branch {branch_user_id}: {v_data.get('message', '')}"
+        return self.commit_version(
+            folder, project_id, v_data['content'], developer_id, 
+            v_data['title'], v_data['tags'], "Review", new_msg, v_data.get('extra_meta')
+        )

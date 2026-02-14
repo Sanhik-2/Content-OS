@@ -332,12 +332,36 @@ def auth_ui():
             <div style="background:rgba(30,144,255,0.1); padding:15px; border-radius:12px; border:1px solid var(--accent-blue); margin-bottom:20px;">
                 <p style="margin:0; font-size:0.8rem; color:var(--text-secondary);">Logged in as</p>
                 <h4 style="margin:0; color:white;">{st.session_state['user']['username']}</h4>
-                <p style="margin:0; font-size:0.7rem; color:var(--accent-blue); font-weight:bold;">{st.session_state['user']['designation']}</p>
+                <p style="margin:0; font-size:0.7rem; color:var(--accent-blue); font-weight:bold;">ID: {st.session_state['user']['id']}</p>
             </div>
             """, unsafe_allow_html=True)
             if st.button("Logout", key="logout_btn", use_container_width=True, type="secondary"):
                 st.session_state['user'] = None
                 st.rerun()
+            
+            st.markdown("---")
+            with st.expander("🔗 Join Project via Link", expanded=True):
+                join_link = st.text_input("Project Share ID", placeholder="Paste ID here...")
+                if st.button("Join Project", use_container_width=True):
+                    # For this implementation, joining means adding yourself to meta pending approval 
+                    # OR just notifying the dev. Simplification: if you have the ID, you can view.
+                    # We'll search across all folders for this ID.
+                    found = False
+                    for f in cms.get_folders():
+                        proj_path = os.path.join(CMS_ROOT, f, join_link)
+                        if os.path.exists(proj_path):
+                            meta = cms.get_meta(f, join_link)
+                            if meta and current_user_id not in meta.get('collaborators', {}):
+                                # Add user as 'Viewer' so the dev can see them
+                                meta.setdefault('collaborators', {})[current_user_id] = "Viewer"
+                                with open(os.path.join(proj_path, "meta.json"), "w") as f_meta:
+                                    json.dump(meta, f_meta, indent=2)
+                                st.success("Joined Project successfully! You are now a Viewer.")
+                            else:
+                                st.info("You are already a member of this project.")
+                            found = True
+                            break
+                    if not found: st.error("Project ID not found.")
         else:
             with st.expander("🔐 User Authentication", expanded=True):
                 tab1, tab2 = st.tabs(["Login", "Register"])
@@ -356,9 +380,8 @@ def auth_ui():
                 with tab2:
                     r_user = st.text_input("New Username", key="reg_user")
                     r_pass = st.text_input("New Password", type="password", key="reg_pass")
-                    r_desig = st.selectbox("Designation", ["Co-Developer", "Editor", "Contributor", "Viewer"])
                     if st.button("Create Account", use_container_width=True):
-                        ok, msg = auth.register(r_user, r_pass, r_desig)
+                        ok, msg = auth.register(r_user, r_pass)
                         if ok: st.success("Account created! Please login.")
                         else: st.error(msg)
     
@@ -654,11 +677,14 @@ if engine == "CMS Library":
             
             # Collaboration Info
             st.markdown(f"## {p.get('title', '--None--')}")
+            st.code(f"Share ID: {pid}", language="text")
+            
             with st.expander("👥 Collaborators & Permissions"):
                 owner_id = meta.get('owner', '--None--')
-                owner_name = "You" if owner_id == current_user_id else ("Owner" if owner_id != "--None--" else "--None--")
-                st.write(f"**Owner Hash:** {owner_id}")
-                st.write(f"**Collaborators:** {list(meta.get('collaborators', {}).keys())}")
+                owner_role = meta.get('collaborators', {}).get(owner_id, "Developer")
+                st.write(f"**Owner:** {owner_id} ({owner_role})")
+                st.write("**Collaborator Roles:**")
+                st.json(meta.get('collaborators', {}))
                 
                 if meta.get('owner') == current_user_id:
                     new_collab = st.text_input("Invite Collaborator (User ID)")
@@ -689,6 +715,14 @@ if engine == "CMS Library":
                 st.markdown(view_version['content'])
                 st.markdown("---")
                 
+                # Developer Tools: Merging
+                if sel_branch != "main" and meta.get('owner') == current_user_id:
+                    if st.button("✨ Merge this version to Main", use_container_width=True):
+                        with st.spinner("Merging..."):
+                            cms.merge_branch(folder, pid, sel_branch, view_version['version_id'], current_user_id)
+                            st.success("Merged successfully!")
+                            st.rerun()
+
                 c1, c2 = st.columns(2)
                 if c1.button("✏️ Edit Content", use_container_width=True):
                     st.session_state['show_editor'] = p

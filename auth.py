@@ -16,9 +16,17 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60 # 30 days for this local tool
 USERS_DB_PATH = "security_data/users.json"
 
-# Password Hashing
-# Switched to argon2 to avoid bcrypt's 72 byte limit and compatibility issues
-pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+# Password Hashing with fallback
+# Try Argon2 first (preferred), fallback to bcrypt for compatibility
+try:
+    from argon2 import PasswordHasher
+    pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+    HASH_BACKEND = "argon2"
+except ImportError:
+    # Fallback to bcrypt if argon2-cffi is not available
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    HASH_BACKEND = "bcrypt"
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # --- Models ---
@@ -44,6 +52,7 @@ def ensure_db():
     if not os.path.exists("security_data"):
         os.makedirs("security_data")
     if not os.path.exists(USERS_DB_PATH):
+        print(f"[AUTH] Creating default user database with {HASH_BACKEND} password hashing")
         # Create default admin user: admin / admin123
         hashed_pw = pwd_context.hash("admin123")
         default_users = {

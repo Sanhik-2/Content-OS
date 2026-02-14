@@ -121,15 +121,15 @@ st.markdown("""
         border: none !important;
     }
 
-    /* Secondary/Kind Buttons */
-    button[kind="secondary"] {
+    /* Secondary Buttons Styling */
+    button[data-testid="stBaseButton-secondary"] {
         background: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid var(--glass-border) !important;
         color: var(--text-primary) !important;
         backdrop-filter: blur(5px);
     }
     
-    button[kind="secondary"]:hover {
+    button[data-testid="stBaseButton-secondary"]:hover {
         background: rgba(255, 255, 255, 0.1) !important;
         border-color: var(--accent-blue) !important;
     }
@@ -292,7 +292,7 @@ check_security()
 from core import (
     call_gemini, generate_hash, extract_text_from_pdf, 
     calculate_reading_time, sanitize_text, IngestionClient, 
-    ContentManager, CMS_ROOT, get_youtube_transcript, export_to_docx, export_to_pdf,
+    ContentManager, AuthManager, CMS_ROOT, get_youtube_transcript, export_to_docx, export_to_pdf,
     check_env_security, predict_engagement_metrics, predict_audience_insights, predict_user_behavior
 )
 
@@ -318,7 +318,56 @@ def st_call_gemini(prompt, task_type, model_name='gemini-2.5-flash'):
     return res or ""
 
 ingest_client = IngestionClient()
+auth = AuthManager()
 cms = ContentManager()
+
+# --- AUTH SESSION MANAGEMENT ---
+if 'user' not in st.session_state:
+    st.session_state['user'] = None
+
+def auth_ui():
+    with st.sidebar:
+        if st.session_state['user']:
+            st.markdown(f"""
+            <div style="background:rgba(30,144,255,0.1); padding:15px; border-radius:12px; border:1px solid var(--accent-blue); margin-bottom:20px;">
+                <p style="margin:0; font-size:0.8rem; color:var(--text-secondary);">Logged in as</p>
+                <h4 style="margin:0; color:white;">{st.session_state['user']['username']}</h4>
+                <p style="margin:0; font-size:0.7rem; color:var(--accent-blue); font-weight:bold;">{st.session_state['user']['designation']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("Logout", key="logout_btn", use_container_width=True, type="secondary"):
+                st.session_state['user'] = None
+                st.rerun()
+        else:
+            with st.expander("🔐 User Authentication", expanded=True):
+                tab1, tab2 = st.tabs(["Login", "Register"])
+                with tab1:
+                    l_user = st.text_input("Username", key="login_user")
+                    l_pass = st.text_input("Password", type="password", key="login_pass")
+                    if st.button("Sign In", use_container_width=True):
+                        user = auth.login(l_user, l_pass)
+                        if user:
+                            user['username'] = l_user
+                            st.session_state['user'] = user
+                            st.success("Welcome back!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        else: st.error("Invalid credentials.")
+                with tab2:
+                    r_user = st.text_input("New Username", key="reg_user")
+                    r_pass = st.text_input("New Password", type="password", key="reg_pass")
+                    r_desig = st.selectbox("Designation", ["Co-Developer", "Editor", "Contributor", "Viewer"])
+                    if st.button("Create Account", use_container_width=True):
+                        ok, msg = auth.register(r_user, r_pass, r_desig)
+                        if ok: st.success("Account created! Please login.")
+                        else: st.error(msg)
+    
+    if not st.session_state['user']:
+        st.info("Please login to access all features.")
+        st.stop()
+
+auth_ui()
+current_user_id = st.session_state['user']['id']
 
 # --- PERSONALIZATION MONITORING ---
 class UserBehaviorTracker:
@@ -439,7 +488,7 @@ with st.sidebar:
                             text = "Error: Could not decode text."
                 
                 if text:
-                    cms.create_project(imp_title, imp_folder, text, tags=["Imported", "Ingestion"], extra_meta=extra_meta)
+                    cms.create_project(imp_title, imp_folder, text, current_user_id, tags=["Imported", "Ingestion"], extra_meta=extra_meta)
                     st.success(f"Imported '{imp_title}'!")
                     if extra_meta.get('confidence'):
                         st.caption(f"Confidence: {extra_meta['confidence']}")
@@ -595,9 +644,43 @@ if engine == "CMS Library":
         @st.dialog("📄 Project Viewer", width="large")
         def project_viewer(p):
             folder, pid = p['folder'], p['project_id']
-            history = cms.get_history(folder, pid)
+            meta = cms.get_meta(folder, pid)
+            if not meta:
+                st.error("Project metadata could not be retrieved.")
+                if st.button("Close"): 
+                    st.session_state.pop('show_viewer', None)
+                    st.rerun()
+                st.stop()
+            
+            # Collaboration Info
+            st.markdown(f"## {p.get('title', '--None--')}")
+            with st.expander("👥 Collaborators & Permissions"):
+                owner_id = meta.get('owner', '--None--')
+                owner_name = "You" if owner_id == current_user_id else ("Owner" if owner_id != "--None--" else "--None--")
+                st.write(f"**Owner Hash:** {owner_id}")
+                st.write(f"**Collaborators:** {list(meta.get('collaborators', {}).keys())}")
+                
+                if meta.get('owner') == current_user_id:
+                    new_collab = st.text_input("Invite Collaborator (User ID)")
+                    role = st.selectbox("Role", ["Editor", "Co-Developer", "Viewer"])
+                    if st.button("➕ Grant Access"):
+                        meta.get('collaborators', {})[new_collab] = role
+                        # Update meta
+                        import json
+                        with open(os.path.join(CMS_ROOT, folder, pid, "meta.json"), "w") as f:
+                            json.dump(meta, f, indent=2)
+                        st.success("Permission updated!")
+            
+            # Switch between main and collaborator branches
+            available_branches = ["main"]
+            branch_root = os.path.join(CMS_ROOT, folder, pid, "branches")
+            if os.path.exists(branch_root):
+                available_branches += [d for d in os.listdir(branch_root) if os.path.isdir(os.path.join(branch_root, d))]
+            
+            sel_branch = st.selectbox("View Branch", available_branches)
+            history = cms.get_history(folder, pid, sel_branch)
+            
             if history:
-                st.markdown(f"## {p['title']}")
                 version_options = {f"v.{v['timestamp'][11:16]} ({v['version_id'][:6]})": i for i, v in enumerate(history)}
                 v_sel = st.selectbox("Version History", options=list(version_options.keys()))
                 view_version = history[version_options[v_sel]]
@@ -618,21 +701,39 @@ if engine == "CMS Library":
         @st.dialog("✏️ Project Editor", width="large")
         def project_editor(p):
             folder, pid = p['folder'], p['project_id']
+            meta = cms.get_meta(folder, pid)
+            if not meta:
+                st.error("Metadata missing.")
+                st.stop()
+                
             history = cms.get_history(folder, pid)
             if history:
-                st.markdown(f"## Editing: {p['title']}")
+                st.markdown(f"## Editing: {p.get('title', '--None--')}")
                 latest = history[0]
-                edited = st.text_area("Content", latest['content'], height=500)
+                edited = st.text_area("Content", latest.get('content', ""), height=500)
                 
                 ec1, ec2, ec3 = st.columns([2, 2, 1])
                 new_status = ec1.selectbox("Status", ContentManager.LIFECYCLE_STAGES, index=ContentManager.LIFECYCLE_STAGES.index(latest['status']))
                 msg = ec2.text_input("Commit Message", "Manual update from editor")
                 
-                if ec3.button("💾 Save Changes", use_container_width=True):
-                    cms.commit_version(folder, pid, edited, p['title'], latest.get('tags', []), new_status, msg)
-                    st.toast("Updated Successfully!")
-                    if 'show_editor' in st.session_state: del st.session_state['show_editor']
-                    st.rerun()
+                # Permission Check
+                meta = cms.get_meta(folder, pid)
+                if not meta:
+                    is_authorized = False
+                else:
+                    is_authorized = meta.get('owner') == current_user_id or meta.get('collaborators', {}).get(current_user_id) in ['Editor', 'Co-Developer']
+                
+                if ec3.button("💾 Save Changes", use_container_width=True, disabled=not is_authorized):
+                    if is_authorized:
+                        cms.commit_version(folder, pid, edited, current_user_id, p['title'], latest.get('tags', []), new_status, msg)
+                        st.toast("Pushed to your branch/main!")
+                        if 'show_editor' in st.session_state: del st.session_state['show_editor']
+                        st.rerun()
+                    else:
+                        st.error("Access Denied.")
+                        
+                if not is_authorized:
+                    st.warning("⚠️ View-Only Mode: You don't have permission to commit changes.")
                 if st.button("⬅️ Back to Viewer"):
                     st.session_state['show_viewer'] = p
                     if 'show_editor' in st.session_state: del st.session_state['show_editor']
@@ -822,7 +923,7 @@ elif engine == "Creation Engine":
                         if save_folder == "General" and not os.path.exists(os.path.join(CMS_ROOT, "General")):
                             os.makedirs(os.path.join(CMS_ROOT, "General"))
                         
-                        cms.create_project(title, save_folder, result, tags, extra_meta=gen_meta)
+                        cms.create_project(title, save_folder, result, current_user_id, tags, extra_meta=gen_meta)
                         st.success(f"Generated & Saved to '{save_folder}'!")
 
     if st.session_state['generated_content']:
@@ -842,7 +943,7 @@ elif engine == "Creation Engine":
                 gen_meta = {"mode": mode, "source_type": src_type, "tone": tone, "platform": platform}
                 title = f"{mode}: {audience[:15]}... ({datetime.datetime.now().strftime('%H:%M')})"
                 
-                cms.create_project(title, target_f, edited, tags, extra_meta=gen_meta)
+                cms.create_project(title, target_f, edited, current_user_id, tags, extra_meta=gen_meta)
                 st.toast(f"Saved to {target_f}!")
                 st.rerun()
 
@@ -1051,7 +1152,8 @@ elif engine == "Transformation Engine":
                         folder=meta['folder'],
                         project_id=meta['project_id'],
                         content=edited,
-                        title=meta['title'],
+                        user_id=current_user_id,
+                        title=meta.get('title', '--None--'),
                         tags=tags,
                         status="Draft",
                         message=msg,

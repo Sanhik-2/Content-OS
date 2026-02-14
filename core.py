@@ -9,6 +9,8 @@ import html
 from dotenv import load_dotenv
 import google.generativeai as genai
 from pypdf import PdfReader
+import hmac
+import secrets
 
 # Load environment variables
 load_dotenv(override=True)
@@ -405,8 +407,49 @@ class IngestionClient:
         except Exception as e:
             return {"error": str(e)}
 
+class AuthManager:
+    """Strongly-typed Authentication and Identity Management."""
+    USER_DB_PATH = os.path.join(CMS_ROOT, "users.json")
+
+    def __init__(self):
+        if not os.path.exists(CMS_ROOT): os.makedirs(CMS_ROOT)
+        self.users = self._load()
+
+    def _load(self):
+        if os.path.exists(self.USER_DB_PATH):
+            with open(self.USER_DB_PATH, 'r') as f: return json.load(f)
+        return {}
+
+    def _save(self):
+        with open(self.USER_DB_PATH, 'w') as f: json.dump(self.users, f, indent=2)
+
+    def register(self, username, password, designation="Editor"):
+        if username in self.users: return False, "User exists."
+        salt = secrets.token_hex(8)
+        pwd_hash = hashlib.sha256((password + salt).encode()).hexdigest()
+        user_id = hashlib.md5(username.encode()).hexdigest()[:12]
+        
+        self.users[username] = {
+            "id": user_id,
+            "hash": pwd_hash,
+            "salt": salt,
+            "designation": designation,
+            "created_at": datetime.datetime.now().isoformat()
+        }
+        self._save()
+        return True, user_id
+
+    def login(self, username, password):
+        user = self.users.get(username)
+        if not user: return None
+        check_hash = hashlib.sha256((password + user['salt']).encode()).hexdigest()
+        if check_hash == user['hash']:
+            return user
+        return None
+
 class ContentManager:
     LIFECYCLE_STAGES = ["Idea", "Draft", "Review", "Approval", "Publication", "Archival"]
+    LEGACY_FALLBACK = "--None--"
     
     def __init__(self):
         if not os.path.exists(CMS_ROOT):
@@ -415,77 +458,119 @@ class ContentManager:
     def _get_path(self, folder, project_id):
         return os.path.join(CMS_ROOT, folder, project_id)
 
-    def create_project(self, title, folder, content, tags=None, extra_meta=None):
+    def create_project(self, title, folder, content, owner_id, tags=None, extra_meta=None):
         timestamp = int(time.time())
         if not title: title = "Untitled Project"
         clean_title = "".join([c if c.isalnum() else "_" for c in title])[:30]
         project_id = f"{timestamp}_{clean_title}"
         path = self._get_path(folder, project_id)
         
-        if not os.path.exists(path):
-            os.makedirs(path, exist_ok=True)
-            
-        return self.commit_version(folder, project_id, content, title, tags or [], "Idea", "Initial commit", extra_meta)
-
-    def commit_version(self, folder, project_id, content, title, tags, status, message="Update", extra_meta=None):
-        path = self._get_path(folder, project_id)
-        if not os.path.exists(path):
-            os.makedirs(path, exist_ok=True)
-            
-        timestamp = datetime.datetime.now().isoformat()
-        content_hash = generate_hash(content + timestamp)
+        # Initialize directory structure
+        os.makedirs(os.path.join(path, "main"), exist_ok=True)
+        os.makedirs(os.path.join(path, "branches"), exist_ok=True)
         
-        word_count = len(content.split())
-        char_count = len(content)
-        read_time = calculate_reading_time(content)
-        
-        version_data = {
-            "version_id": content_hash,
-            "timestamp": timestamp,
-            "title": title,
-            "content": content,
-            "tags": tags,
-            "status": status,
-            "message": message,
-            "metrics": {
-                "word_count": word_count,
-                "char_count": char_count,
-                "read_time": read_time
-            },
-            "extra_meta": extra_meta or {}
-        }
-        
-        with open(os.path.join(path, f"v_{content_hash}.json"), "w") as f:
-            json.dump(version_data, f, indent=2)
-            
+        # Initial meta including collaborations
         meta = {
-            "current_head": content_hash,
-            "folder": folder,
+            "owner": owner_id,
+            "collaborators": {owner_id: "Owner"}, # Map of user_id -> designation
             "project_id": project_id,
-            "last_modified": timestamp,
-            "title": title, 
-            "tags": tags,
-            "status": status,
-            "latest_metrics": version_data['metrics']
+            "title": title,
+            "folder": folder,
+            "created_at": datetime.datetime.now().isoformat()
         }
         with open(os.path.join(path, "meta.json"), "w") as f:
             json.dump(meta, f, indent=2)
+            
+        return self.commit_version(folder, project_id, content, owner_id, title, tags or [], "Idea", "Initial commit", extra_meta)
+
+    def commit_version(self, folder, project_id, content, user_id, title, tags, status, message="Update", extra_meta=None):
+        path = self._get_path(folder, project_id)
+        meta = self.get_meta(folder, project_id)
+        
+        # Compatibility Layer: check if this is an old-style project
+        is_owner = meta.get('owner', self.LEGACY_FALLBACK) == user_id
+        
+        # If collaborator, commit to a branch instead of main
+        sub_folder = "main" if is_owner else os.path.join("branches", user_id)
+        target_dir = os.path.join(path, sub_folder)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        timestamp = datetime.datetime.now().isoformat()
+        content_hash = generate_hash(content + timestamp + user_id) # Hash includes user for uniqueness
+        
+        version_data = {
+            "version_id": content_hash,
+            "contributor_hash": user_id,
+            "timestamp": timestamp,
+            "title": title or self.LEGACY_FALLBACK,
+            "content": content,
+            "tags": tags or [self.LEGACY_FALLBACK],
+            "status": status,
+            "message": message,
+            "extra_meta": extra_meta or {}
+        }
+        
+        with open(os.path.join(target_dir, f"v_{content_hash}.json"), "w") as f:
+            json.dump(version_data, f, indent=2)
+            
+        # Update Head if it's the main branch
+        if is_owner:
+            meta["current_head"] = content_hash
+            meta["last_modified"] = timestamp
+            with open(os.path.join(path, "meta.json"), "w") as f:
+                json.dump(meta, f, indent=2)
             
         return project_id
 
     def get_meta(self, folder, project_id):
         try:
             with open(os.path.join(self._get_path(folder, project_id), "meta.json"), "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                # Structure-level Backwards Compatibility
+                defaults = {
+                    "owner": self.LEGACY_FALLBACK,
+                    "collaborators": {},
+                    "project_id": project_id,
+                    "title": self.LEGACY_FALLBACK,
+                    "folder": folder,
+                    "tags": [],
+                    "status": "Idea",
+                    "last_modified": self.LEGACY_FALLBACK
+                }
+                merged = {**defaults, **data}
+                # Key-level Backwards Compatibility (Type-safe Nil-punning)
+                for k in merged:
+                    if merged[k] is None:
+                        merged[k] = defaults.get(k, self.LEGACY_FALLBACK)
+                
+                # Special Case: Collaborators must ALWAYS be a dict
+                if not isinstance(merged.get('collaborators'), dict):
+                    merged['collaborators'] = {}
+                    
+                return merged
         except: return None
 
-    def get_history(self, folder, project_id):
-        path = self._get_path(folder, project_id)
+    def get_history(self, folder, project_id, branch="main"):
+        path = os.path.join(self._get_path(folder, project_id), branch)
+        if branch != "main": # For collaborator branches
+            path = os.path.join(self._get_path(folder, project_id), "branches", branch)
+            
         files = glob.glob(os.path.join(path, "v_*.json"))
         history = []
         for f in files:
             with open(f, "r") as r:
-                history.append(json.load(r))
+                ver = json.load(r)
+                # Inject legacy fallback for missing keys
+                safe_ver = {
+                    "version_id": ver.get("version_id", self.LEGACY_FALLBACK),
+                    "contributor_hash": ver.get("contributor_hash", self.LEGACY_FALLBACK),
+                    "timestamp": ver.get("timestamp", self.LEGACY_FALLBACK),
+                    "content": ver.get("content", ""),
+                    "title": ver.get("title", self.LEGACY_FALLBACK),
+                    "status": ver.get("status", self.LEGACY_FALLBACK),
+                    "message": ver.get("message", self.LEGACY_FALLBACK)
+                }
+                history.append(safe_ver)
         return sorted(history, key=lambda x: x['timestamp'], reverse=True)
 
     def list_all_content(self):

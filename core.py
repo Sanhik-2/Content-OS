@@ -138,6 +138,57 @@ def calculate_reading_time(text):
     minutes = words / 200
     return f"{minutes:.1f} min"
 
+def export_to_docx(title, content):
+    """Generates a .docx file and returns its bytes."""
+    try:
+        from docx import Document
+        from io import BytesIO
+        doc = Document()
+        doc.add_heading(title, 0)
+        # Ensure content is string
+        content_str = str(content)
+        # Split content by lines to preserve paragraphs
+        for line in content_str.split('\n'):
+            doc.add_paragraph(line)
+        
+        target = BytesIO()
+        doc.save(target)
+        target.seek(0)
+        return target.getvalue()
+    except Exception as e:
+        raise Exception(f"Docx Generation Error: {e}")
+
+def export_to_pdf(title, content):
+    """Generates a .pdf file and returns its bytes."""
+    try:
+        from fpdf import FPDF
+        
+        # Use a class that supports multi-page and basic headers
+        class PDF(FPDF):
+            def header(self):
+                self.set_font('helvetica', 'B', 12)
+                self.cell(0, 10, f'Content OS Export: {title[:50]}', 0, 1, 'C')
+                self.ln(5)
+
+        pdf = PDF()
+        pdf.add_page()
+        
+        # FPDF2 supports unicode if we provide a font, but for standard fonts
+        # it uses latin-1. Let's try to handle standard fonts more robustly.
+        pdf.set_font("helvetica", size=12)
+        
+        # Clean text for PDF compatibility (removes emojis/weird chars that break standard fonts)
+        # Instead of latin-1, let's use a broader approach or just clean it carefully
+        safe_content = str(content).encode('ascii', 'ignore').decode('ascii')
+        
+        pdf.multi_cell(0, 10, safe_content)
+        
+        # In fpdf2, output() returns a bytearray by default. 
+        # Streamlit requires bytes for the download button in some environments.
+        return bytes(pdf.output())
+    except Exception as e:
+        raise Exception(f"PDF Generation Error: {e}")
+
 def sanitize_text(text):
     if text is None: return ""
     # aggressive sanitization to prevent XSS

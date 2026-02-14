@@ -114,7 +114,7 @@ check_security()
 from core import (
     call_gemini, generate_hash, extract_text_from_pdf, 
     calculate_reading_time, sanitize_text, IngestionClient, 
-    ContentManager, CMS_ROOT, get_youtube_transcript,
+    ContentManager, CMS_ROOT, get_youtube_transcript, export_to_docx, export_to_pdf,
     check_env_security, predict_engagement_metrics, predict_audience_insights, predict_user_behavior
 )
 
@@ -430,12 +430,48 @@ if engine == "CMS Library":
                     st.rerun()
                 
                 # --- EXPORT ---
-                st.markdown("### 📤 Export")
-                ec1, ec2, ec3 = st.columns(3)
-                ec1.download_button("📥 Markdown", edit_content, file_name=f"{active_meta['title']}.md")
-                ec2.download_button("🌍 Website (HTML)", get_web_boilerplate(active_meta['title'], edit_content), file_name="index.html", mime="text/html")
+                st.markdown("### 📤 Export Content")
+                ec1, ec2, ec3, ec4 = st.columns(4)
+                
+                with ec1:
+                    st.download_button("📥 Markdown", edit_content, 
+                        file_name=f"{active_meta['title']}.md", use_container_width=True)
+                
+                with ec2:
+                    st.download_button("🌍 Website (HTML)", get_web_boilerplate(active_meta['title'], edit_content), 
+                        file_name=f"{active_meta['title']}_web.html", mime="text/html", use_container_width=True)
+                
                 with ec3:
-                     st.caption("💡 The HTML file contains a prompt to further enhance it using AI.")
+                    try:
+                        docx_data = export_to_docx(active_meta['title'], edit_content)
+                        st.download_button("📄 Word Document", docx_data, 
+                            file_name=f"{active_meta['title']}.docx", 
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Docx Error: {e}")
+                
+                with ec4:
+                    try:
+                        pdf_data = export_to_pdf(active_meta['title'], edit_content)
+                        st.download_button("📕 PDF File", pdf_data, 
+                            file_name=f"{active_meta['title']}.pdf", mime="application/pdf",
+                            use_container_width=True)
+                    except Exception as e:
+                        st.error(f"PDF Error: {e}")
+                
+                # Additional Export: JSON
+                json_data = json.dumps({
+                    "title": active_meta['title'],
+                    "tags": active_meta.get('tags', []),
+                    "status": active_meta.get('status', 'Draft'),
+                    "content": edit_content,
+                    "exported_at": str(datetime.datetime.now())
+                }, indent=4)
+                st.download_button("📦 Export JSON Metadata", json_data, 
+                    file_name=f"{active_meta['title']}_meta.json", mime="application/json")
+                
+                st.info("💡 Pro Tip: The HTML export is optimized for GitHub Pages and includes an AI prompt for further styling.")
 
 # ================= CREATION ENGINE =================
 elif engine == "Creation Engine":
@@ -586,6 +622,31 @@ elif engine == "Creation Engine":
     if st.session_state['generated_content']:
         st.markdown("### Result")
         st.markdown(st.session_state['generated_content'])
+        
+        with st.expander("📥 Quick Export"):
+            qec1, qec2, qec3, qec4 = st.columns(4)
+            res_text = st.session_state['generated_content']
+            res_title = "Generated_Content"
+            
+            qec1.download_button("📥 Markdown", res_text, file_name=f"{res_title}.md", use_container_width=True)
+            qec2.download_button("🌍 HTML", get_web_boilerplate(res_title, res_text), file_name=f"{res_title}.html", mime="text/html", use_container_width=True)
+            
+            try:
+                docx_data = export_to_docx(res_title, res_text)
+                qec3.download_button("📄 Word", docx_data, file_name=f"{res_title}.docx", 
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            except Exception as e: 
+                st.error(f"Docx Error: {e}")
+            
+            try:
+                pdf_data = export_to_pdf(res_title, res_text)
+                qec4.download_button("📕 PDF", pdf_data, file_name=f"{res_title}.pdf", mime="application/pdf", use_container_width=True)
+            except Exception as e: 
+                st.error(f"PDF Error: {e}")
+            
+            # JSON Quick Export
+            res_json = json.dumps({"title": "Generated", "content": res_text, "timestamp": str(datetime.datetime.now())}, indent=2)
+            st.download_button("📦 Download JSON Metadata", res_json, file_name="generated_content.json", mime="application/json")
 
 # ================= TRANSFORMATION ENGINE =================
 elif engine == "Transformation Engine":

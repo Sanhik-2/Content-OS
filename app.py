@@ -247,7 +247,19 @@ st.markdown("""
     }
     .flashcard:hover { transform: scale(1.02); border-color: var(--accent-blue); }
     .flashcard-q { font-size: 1.2rem; font-weight: 700; color: var(--accent-blue); margin-bottom: 15px; font-family: 'Outfit', sans-serif; }
-    .flashcard-a { font-size: 1rem; color: var(--text-primary); opacity: 0.9; }
+    .flashcard-a { font-size: 1rem; color: #a1a1aa; opacity: 0.9; margin-top: 10px; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; width: 100%; }
+
+    /* Ambient Light States */
+    .flashcard.correct { 
+        border-color: #22c55e !important; 
+        box-shadow: 0 0 30px rgba(34, 197, 94, 0.2);
+        background: linear-gradient(135deg, rgba(34, 197, 94, 0.1) 0%, #141416 100%);
+    }
+    .flashcard.incorrect { 
+        border-color: #ef4444 !important; 
+        box-shadow: 0 0 30px rgba(239, 68, 68, 0.2);
+        background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, #141416 100%);
+    }
 
     /* Modal Styling */
     div[data-testid="stDialog"] {
@@ -941,15 +953,58 @@ elif engine == "Transformation Engine":
                     
                     flashcards = json.loads(json_str)
                     
+                    if 'quiz_state' not in st.session_state:
+                        st.session_state['quiz_state'] = {}
+                    
+                    @st.dialog("Quiz Result")
+                    def quiz_modal(title, message):
+                        st.markdown(f"### {title}")
+                        st.write(message)
+                        if st.button("Close"): st.rerun()
+
                     cols = st.columns(2)
                     for idx, card in enumerate(flashcards):
+                        card_id = f"card_{idx}_{hashlib.md5(json_str.encode()).hexdigest()[:6]}"
+                        state = st.session_state['quiz_state'].get(card_id, {"status": "default", "revealed": False})
+                        
+                        card_class = "flashcard"
+                        if state['status'] == "correct": card_class += " correct"
+                        elif state['status'] == "incorrect": card_class += " incorrect"
+                        
                         with cols[idx % 2]:
+                            # Render Wrapper
                             st.markdown(f"""
-                            <div class="flashcard">
-                                <div class="flashcard-q">Q: {card.get('question', '...')}</div>
-                                <div class="flashcard-a">A: {card.get('answer', '...')}</div>
+                            <div class="{card_class}">
+                                <div class="flashcard-q">{card.get('question', '...')}</div>
                             </div>
                             """, unsafe_allow_html=True)
+                            
+                            # Interaction Area (outside HTML due to Streamlit limitations)
+                            ans_input = st.text_input("Your Answer", key=f"in_{card_id}", label_visibility="collapsed", placeholder="Type answer here...")
+                            
+                            i_col1, i_col2 = st.columns(2)
+                            if i_col1.button("✔️ Check", key=f"chk_{card_id}", use_container_width=True):
+                                correct_ans = str(card.get('answer', '')).lower().strip()
+                                user_ans = ans_input.lower().strip()
+                                
+                                if user_ans and user_ans in correct_ans or correct_ans in user_ans:
+                                    st.session_state['quiz_state'][card_id] = {"status": "correct", "revealed": True}
+                                    quiz_modal("🎉 Right Answer!", f"Excellent! The answer is: {card.get('answer')}")
+                                else:
+                                    st.session_state['quiz_state'][card_id] = {"status": "incorrect", "revealed": False}
+                                    st.toast("Not quite right, try again!", icon="❌")
+                                    st.rerun()
+
+                            if i_col2.button("👁️ " + ("Hide" if state['revealed'] else "Reveal"), key=f"rev_{card_id}", use_container_width=True):
+                                st.session_state['quiz_state'][card_id] = {
+                                    "status": state['status'], 
+                                    "revealed": not state['revealed']
+                                }
+                                st.rerun()
+
+                            if state['revealed']:
+                                st.markdown(f"""<div class="flashcard-a"><b>Answer:</b> {card.get('answer', '...')}</div>""", unsafe_allow_html=True)
+                            st.markdown("<br>", unsafe_allow_html=True)
                 else:
                     st.error("No valid flashcard data found in AI response.")
                     st.code(raw)

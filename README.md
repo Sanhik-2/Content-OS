@@ -98,7 +98,7 @@ This app is ready for deployment on platforms like **Render**, **Railway**, or *
 4. Run `streamlit run app.py --server.port $PORT` for the UI.
 
 ---
-Built with ❤️ by [Ashwath-Raj](https://github.com/Ashwath-Raj)
+Built with ❤️ by [Sanhik Nandi](https://github.com/Sanhik-2)
 =======
 # Content-OS
 AI Content OS is a unified, intelligent platform designed to streamline digital content workflows. It integrates content creation, personalization, and multi-format transformation into a single ecosystem, eliminating fragmentation and inefficiencies faced by creators and teams.

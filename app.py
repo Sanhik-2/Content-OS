@@ -292,9 +292,12 @@ check_security()
 from core import (
     call_gemini, generate_hash, extract_text_from_pdf, 
     calculate_reading_time, sanitize_text, IngestionClient, 
-    ContentManager, AuthManager, CMS_ROOT, get_youtube_transcript, export_to_docx, export_to_pdf,
+    ContentManager, CMS_ROOT, get_youtube_transcript, export_to_docx, export_to_pdf,
     check_env_security, predict_engagement_metrics, predict_audience_insights, predict_user_behavior
 )
+
+# Authentication Imports
+from auth import authenticate_user, get_user, create_user
 
 # 3. Check API Key
 sec_ok, sec_msg = check_env_security()
@@ -318,79 +321,13 @@ def st_call_gemini(prompt, task_type, model_name='gemini-2.5-flash'):
     return res or ""
 
 ingest_client = IngestionClient()
-auth = AuthManager()
 cms = ContentManager()
 
 # --- AUTH SESSION MANAGEMENT ---
+if 'authenticated' not in st.session_state:
+    st.session_state['authenticated'] = False
 if 'user' not in st.session_state:
     st.session_state['user'] = None
-
-def auth_ui():
-    with st.sidebar:
-        if st.session_state['user']:
-            st.markdown(f"""
-            <div style="background:rgba(30,144,255,0.1); padding:15px; border-radius:12px; border:1px solid var(--accent-blue); margin-bottom:20px;">
-                <p style="margin:0; font-size:0.8rem; color:var(--text-secondary);">Logged in as</p>
-                <h4 style="margin:0; color:white;">{st.session_state['user']['username']}</h4>
-                <p style="margin:0; font-size:0.7rem; color:var(--accent-blue); font-weight:bold;">ID: {st.session_state['user']['id']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            if st.button("Logout", key="logout_btn", use_container_width=True, type="secondary"):
-                st.session_state['user'] = None
-                st.rerun()
-            
-            st.markdown("---")
-            with st.expander("🔗 Join Project via Link", expanded=True):
-                join_link = st.text_input("Project Share ID", placeholder="Paste ID here...")
-                if st.button("Join Project", use_container_width=True):
-                    # For this implementation, joining means adding yourself to meta pending approval 
-                    # OR just notifying the dev. Simplification: if you have the ID, you can view.
-                    # We'll search across all folders for this ID.
-                    found = False
-                    for f in cms.get_folders():
-                        proj_path = os.path.join(CMS_ROOT, f, join_link)
-                        if os.path.exists(proj_path):
-                            meta = cms.get_meta(f, join_link)
-                            if meta and current_user_id not in meta.get('collaborators', {}):
-                                # Add user as 'Viewer' so the dev can see them
-                                meta.setdefault('collaborators', {})[current_user_id] = "Viewer"
-                                with open(os.path.join(proj_path, "meta.json"), "w") as f_meta:
-                                    json.dump(meta, f_meta, indent=2)
-                                st.success("Joined Project successfully! You are now a Viewer.")
-                            else:
-                                st.info("You are already a member of this project.")
-                            found = True
-                            break
-                    if not found: st.error("Project ID not found.")
-        else:
-            with st.expander("🔐 User Authentication", expanded=True):
-                tab1, tab2 = st.tabs(["Login", "Register"])
-                with tab1:
-                    l_user = st.text_input("Username", key="login_user")
-                    l_pass = st.text_input("Password", type="password", key="login_pass")
-                    if st.button("Sign In", use_container_width=True):
-                        user = auth.login(l_user, l_pass)
-                        if user:
-                            user['username'] = l_user
-                            st.session_state['user'] = user
-                            st.success("Welcome back!")
-                            time.sleep(0.5)
-                            st.rerun()
-                        else: st.error("Invalid credentials.")
-                with tab2:
-                    r_user = st.text_input("New Username", key="reg_user")
-                    r_pass = st.text_input("New Password", type="password", key="reg_pass")
-                    if st.button("Create Account", use_container_width=True):
-                        ok, msg = auth.register(r_user, r_pass)
-                        if ok: st.success("Account created! Please login.")
-                        else: st.error(msg)
-    
-    if not st.session_state['user']:
-        st.info("Please login to access all features.")
-        st.stop()
-
-auth_ui()
-current_user_id = st.session_state['user']['id']
 
 # --- PERSONALIZATION MONITORING ---
 class UserBehaviorTracker:
@@ -445,20 +382,102 @@ class UserBehaviorTracker:
 
 
 
+# --- AUTHENTICATION UI ---
+def login_screen():
+    st.markdown("""
+        <div style="text-align: center; padding: 2rem 0;">
+            <h1 style="font-size: 3.5rem; margin-bottom: 0.5rem;">⚡ Content OS</h1>
+            <p style="color: var(--text-secondary); font-size: 1.2rem;">Professional AI-Native Operating System</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+        tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
+        
+        with tab1:
+            username = st.text_input("Username", key="login_user")
+            password = st.text_input("Password", type="password", key="login_pass")
+            
+            if st.button("Sign In", use_container_width=True):
+                user = authenticate_user(username, password)
+                if user:
+                    st.session_state['authenticated'] = True
+                    st.session_state['user'] = user.username
+                    st.success(f"Welcome back, {user.full_name or user.username}!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials. Try admin / admin123")
+
+            st.markdown("---")
+            st.caption("Or continue with")
+            oc1, oc2, oc3 = st.columns(3)
+            if oc1.button("🌐 Google"): st.toast("Google OAuth Redirecting...")
+            if oc2.button("💼 LinkedIn"): st.toast("LinkedIn OAuth Redirecting...")
+            if oc3.button("🐙 GitHub"): st.toast("GitHub OAuth Redirecting...")
+            
+        with tab2:
+            new_user = st.text_input("New Username")
+            new_email = st.text_input("Email")
+            new_pass = st.text_input("New Password", type="password")
+            confirm_pass = st.text_input("Confirm Password", type="password")
+            
+            if st.button("Create Account", use_container_width=True):
+                if new_pass != confirm_pass:
+                    st.error("Passwords do not match!")
+                elif len(new_pass) < 6:
+                    st.error("Password too short!")
+                else:
+                    success, msg = create_user({
+                        "username": new_user,
+                        "email": new_email,
+                        "password": new_pass,
+                        "disabled": False,
+                        "role": "creator"
+                    })
+                    if success:
+                        st.success("Account created! You can now login.")
+                    else:
+                        st.error(msg)
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop() if not st.session_state['authenticated'] else None
+
+# Check authentication before showing the app
+if not st.session_state['authenticated']:
+    login_screen()
+
 tracker = UserBehaviorTracker()
 
-# --- UI STATE MANGEMENT ---
-if 'nav_engine' not in st.session_state: st.session_state['nav_engine'] = 'CMS'
+# --- UI STATE MANAGEMENT ---
+if 'authenticated' not in st.session_state: st.session_state['authenticated'] = False
+if 'user' not in st.session_state: st.session_state['user'] = None
+if 'nav_engine' not in st.session_state: st.session_state['nav_engine'] = 'CMS Library'
 if 'active_project' not in st.session_state: st.session_state['active_project'] = None
 if 'generated_content' not in st.session_state: st.session_state['generated_content'] = ""
 
 # --- SIDEBAR NAV ---
 with st.sidebar:
-    st.markdown('<div style="text-align: center; padding: 10px 0;">', unsafe_allow_html=True)
+    st.markdown(f"""
+        <div style="padding: 1rem 0; text-align: center;">
+            <p style="color: var(--text-secondary); margin: 0; font-size: 0.8rem;">Logged in as</p>
+            <p style="color: var(--accent-blue); font-weight: 700; margin: 0;">{st.session_state['user']}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.title("⚡ Content OS")
-    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
-    engine = st.radio("Core Engine", ["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"], index=1)
+    
+    engine = st.radio("Core Engine", ["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"], index=["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"].index(st.session_state['nav_engine']))
+    st.session_state['nav_engine'] = engine
+    
+    st.markdown("---")
+    if st.button("🚪 Logout"):
+        st.session_state['authenticated'] = False
+        st.session_state['user'] = None
+        st.rerun()
     
     st.markdown("""
     <div style="margin-top: 10px; margin-bottom: 20px;">

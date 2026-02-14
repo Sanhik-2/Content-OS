@@ -1,8 +1,10 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Depends, Security
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Depends, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.api_key import APIKeyHeader
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from datetime import timedelta
 import uvicorn
 import os
 from dotenv import load_dotenv
@@ -16,7 +18,12 @@ from core import (
     predict_audience_insights, predict_user_behavior
 )
 
-app = FastAPI(title="Content OS API", version="4.0")
+from auth import (
+    Token, User, authenticate_user, create_access_token, 
+    get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
+)
+
+app = FastAPI(title="Content OS API", version="4.1")
 
 # Security: CORS Policy (More restrictive for production)
 app.add_middleware(
@@ -83,6 +90,27 @@ class CreateProjectRequest(BaseModel):
     tags: Optional[List[str]] = None
     extra_meta: Optional[Dict[str, Any]] = None
 
+# --- Auth Endpoints ---
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/me/", response_model=User)
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    return current_user
+
 # --- Endpoints ---
 
 @app.get("/")
@@ -91,7 +119,7 @@ def read_root():
 
 # 1. AI Content Creation Engine
 @app.post("/create")
-async def create_content(req: CreationRequest):
+async def create_content(req: CreationRequest, current_user: User = Depends(get_current_active_user)):
     prompt = f"""
     ACT AS: Expert Content Creator.
     TASK: Write a {req.mode}.
@@ -136,7 +164,7 @@ async def create_content(req: CreationRequest):
 
 # 2. Content Transformation Engine
 @app.post("/transform")
-async def transform_content(req: TransformationRequest):
+async def transform_content(req: TransformationRequest, current_user: User = Depends(get_current_active_user)):
     prompt = f"""
     TASK: Content Transformation
     SOURCE: {req.content[:15000]}
@@ -154,7 +182,7 @@ async def transform_content(req: TransformationRequest):
 
 # 3. Smart Content Management System (CMS)
 @app.get("/cms/folders")
-def list_folders():
+def list_folders(current_user: User = Depends(get_current_active_user)):
     return {"folders": cms.get_folders()}
 
 @app.post("/cms/folders/{folder}")
@@ -163,11 +191,11 @@ def create_folder(folder: str):
     return {"message": f"Folder {folder} created."}
 
 @app.get("/cms/projects")
-def list_projects():
+def list_projects(current_user: User = Depends(get_current_active_user)):
     return {"projects": cms.list_all_content()}
 
 @app.get("/cms/project/{folder}/{project_id}")
-def get_project(folder: str, project_id: str):
+def get_project(folder: str, project_id: str, current_user: User = Depends(get_current_active_user)):
     meta = cms.get_meta(folder, project_id)
     if not meta:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -175,12 +203,12 @@ def get_project(folder: str, project_id: str):
     return {"metadata": meta, "history": history}
 
 @app.post("/cms/project")
-def create_new_project(req: CreateProjectRequest):
+def create_new_project(req: CreateProjectRequest, current_user: User = Depends(get_current_active_user)):
     pid = cms.create_project(req.title, req.folder, req.content, req.tags, req.extra_meta)
     return {"project_id": pid}
 
 @app.post("/cms/project/commit")
-def commit_version(req: CommitRequest):
+def commit_version(req: CommitRequest, current_user: User = Depends(get_current_active_user)):
     cms.commit_version(req.folder, req.project_id, req.content, req.title, req.tags, req.status, req.message, req.extra_meta)
     return {"message": "Version committed successfully."}
 
@@ -191,7 +219,7 @@ def log_interaction(interaction_type: str, details: Optional[Dict[str, Any]] = N
     return {"message": f"Interaction {interaction_type} logged.", "details": details}
 
 @app.post("/personalize/predict_engagement")
-def predict_engagement(content: str, tone: str = "Professional", platform: str = "Generic"):
+def predict_engagement(content: str, tone: str = "Professional", platform: str = "Generic", current_user: User = Depends(get_current_active_user)):
     """AI-powered engagement prediction endpoint"""
     predictions = predict_engagement_metrics(content, tone, platform)
     return {
@@ -200,7 +228,7 @@ def predict_engagement(content: str, tone: str = "Professional", platform: str =
     }
 
 @app.post("/personalize/predict_audience")
-def predict_audience(content: str, audience: str = "General Tech"):
+def predict_audience(content: str, audience: str = "General Tech", current_user: User = Depends(get_current_active_user)):
     """AI-powered audience insights prediction endpoint"""
     insights = predict_audience_insights(content, audience)
     return {

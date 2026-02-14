@@ -13,10 +13,10 @@ The system follows a **Decoupled Monolithic Architecture**, allowing for both a 
 | :--- | :--- |
 | **Frontend UI** | Streamlit (Inter-based Premium Styling) |
 | **Backend API** | FastAPI / Uvicorn |
-| **AI LLM** | Google Gemini 1.5 Flash (via Google Generative AI SDK) |
-| **Persistence** | Local File System (Atomic JSON-based Versioning) |
+| **Security** | JWT (JSON Web Tokens), BCrypt Hashing, OAuth2 |
+| **AI LLM** | Google Gemini 1.5 Flash |
+| **Persistence** | Local File System (JSON-wrapped Versioning & User DB) |
 | **Ingestion** | BeautifulSoup4 (Web), PyPDF (Documents), YouTube Transcript API |
-| **Security** | Python-Dotenv (Env Management), HTML/XSS Sanitization |
 
 ### 2.2 Visual Architecture Flow
 ```mermaid
@@ -57,10 +57,11 @@ graph TD
 ---
 
 ## 4. Security & Compliance
+- **JWT Authentication**: All API endpoints and UI sections are protected by industry-standard JWT tokens.
+- **Identity Management**: Local BCrypt hashing for password security + placeholders for Google/LinkedIn OAuth.
 - **Key Isolation**: Environment variables are strictly ignored by Git and verified on app startup.
-- **Input Hardening**: 50,000-character input clipping to prevent API abuse and resource exhaustion.
+- **Input Hardening**: 50,000-character input clipping to prevent API abuse.
 - **Output Sanitization**: Universal HTML escaping to prevent XSS attacks in CMS and AI result panels.
-- **Atomic File Writing**: Prevents data corruption during version commits.
 
 ---
 

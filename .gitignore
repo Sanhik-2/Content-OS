@@ -1,4 +1,8 @@
-.env
+.env*
+*.env
+[ ]*.env
+key_check.txt
+status_out.txt
 smart_cms_data/
 cms_data/
 __pycache__/
@@ -12,3 +16,4 @@ env/
 .idea/
 *.log
 .DS_Store
+.streamlit/

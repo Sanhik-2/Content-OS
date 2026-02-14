@@ -19,18 +19,35 @@ MAX_INPUT_SIZE = 50000 # Character limit for safety
 
 def check_env_security():
     """Enhanced environment and API Key security verification."""
+    # Check if we are running in Streamlit Cloud environment
+    is_streamlit_cloud = os.getenv("STREAMLIT_RUNTIME_ENV") is not None or os.path.exists("/app")
+    
+    # Check for the common ' .env' leak (leading space)
+    if os.path.exists(" .env"):
+        return False, "🚨 SECURITY CRITICAL: Duplicate '.env' file with leading space found! This is NOT ignored by git and WILL LEAK KEYS. Delete it immediately."
+
     if not os.path.exists(".env"):
+        if is_streamlit_cloud:
+            # On Streamlit Cloud, keys should be in st.secrets, so .env missing is okay
+            return True, "✅ Streamlit Cloud detected. Using st.secrets for configuration."
         return False, "🚨 SECURITY CRITICAL: .env file missing! Create one based on .env.example"
     
     # Check for placeholder keys
     key = os.getenv("GEMINI_API_KEY")
     if not key or "YOUR_API_KEY" in key or len(key.strip()) < 20:
+        # Check if it might be in Streamlit secrets first
+        try:
+            import streamlit as st
+            if "GEMINI_API_KEY" in st.secrets:
+                return True, "✅ Security checks passed (using st.secrets)."
+        except: pass
         return False, "⚠️ SECURITY RISK: Invalid or placeholder GEMINI_API_KEY found in .env"
     
     # Check if .env is in .gitignore
     if os.path.exists(".gitignore"):
         with open(".gitignore", "r") as f:
-            if ".env" not in f.read():
+            content = f.read()
+            if ".env" not in content:
                 return False, "🚨 SECURITY RISK: .env is not in .gitignore. Do NOT commit your keys!"
         
     return True, "✅ Security checks passed."
@@ -39,7 +56,11 @@ def get_api_key(task_type):
     """
     Retrieves the appropriate API key, falling back to the master key.
     Ensures that placeholder strings are ignored.
+    Forces a reload of environment variables to avoid using stale keys.
     """
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    
     key_map = {
         "creation": "GEMINI_API_KEY_CREATION",
         "transformation": "GEMINI_API_KEY_TRANSFORMATION",
@@ -51,9 +72,22 @@ def get_api_key(task_type):
     env_var = key_map.get(task_type)
     specialized_key = os.getenv(env_var)
     
+    # Streamlit Secrets Fallback
+    try:
+        import streamlit as st
+        if not master_key and "GEMINI_API_KEY" in st.secrets:
+            master_key = st.secrets["GEMINI_API_KEY"]
+        if not specialized_key and env_var in st.secrets:
+            specialized_key = st.secrets[env_var]
+    except:
+        pass
+    
     # helper for validation
     def is_valid(k):
-        return k and "YOUR_NEW_API_KEY" not in k and "PLACEHOLDER" not in k and len(k.strip()) > 30
+        # Ensure it's a string and doesn't contain common placeholders
+        return isinstance(k, str) and k.strip() != "" and \
+               "YOUR" not in k.upper() and "PLACEHOLDER" not in k.upper() and \
+               len(k.strip()) > 30
 
     if is_valid(specialized_key):
         return specialized_key.strip()
@@ -78,7 +112,11 @@ def call_gemini(prompt, task_type, model_name='gemini-1.5-flash'):
         # Final sanitization of output
         return sanitize_text(response.text)
     except Exception as e:
-        return f"AI Error: {str(e)}"
+        err_msg = str(e)
+        # Redact potential API key from error message for security
+        import re
+        redacted_msg = re.sub(r'AIza[0-9A-Za-z-_]{35}', '[REDACTED_API_KEY]', err_msg)
+        return f"AI Error: {redacted_msg}"
 
 def generate_hash(content):
     return hashlib.sha256(content.encode('utf-8')).hexdigest()[:12]
@@ -102,15 +140,23 @@ def calculate_reading_time(text):
 
 def sanitize_text(text):
     if text is None: return ""
-    # More aggressive sanitization could be added here
-    # For now, html escaping for display safety
-    return html.escape(str(text))
+    # aggressive sanitization to prevent XSS
+    text = str(text)
+    # Remove any weird null bytes
+    text = text.replace('\x00', '')
+    # Escape HTML characters
+    return html.escape(text)
 
 
 def get_youtube_transcript(url):
     from youtube_transcript_api import YouTubeTranscriptApi
     try:
-        video_id = url.split("v=")[1].split("&")[0]
+        import re
+        # More robust video ID extraction
+        match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
+        if not match:
+            return "Error: Could not find valid YouTube video ID."
+        video_id = match.group(1)
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([t['text'] for t in transcript])
     except Exception as e: return f"Error fetching YouTube transcript: {e}"

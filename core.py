@@ -65,12 +65,13 @@ def get_api_key(task_type):
         "creation": "GEMINI_API_KEY_CREATION",
         "transformation": "GEMINI_API_KEY_TRANSFORMATION",
         "cms": "GEMINI_API_KEY_CMS",
-        "personalization": "GEMINI_API_KEY_PERSONALIZATION"
+        "personalization": "GEMINI_API_KEY_PERSONALIZATION",
+        "validation": "GEMINI_API_KEY_VALIDATION"
     }
     
     master_key = os.getenv("GEMINI_API_KEY")
     env_var = key_map.get(task_type)
-    specialized_key = os.getenv(env_var)
+    specialized_key = os.getenv(env_var) if env_var else None
     
     # Streamlit Secrets Fallback
     try:
@@ -110,7 +111,7 @@ def call_gemini(prompt, task_type, model_name='gemini-1.5-flash'):
         model = genai.GenerativeModel(model_name)
         response = model.generate_content(prompt)
         # Final sanitization of output
-        return sanitize_text(response.text)
+        return response.text
     except Exception as e:
         err_msg = str(e)
         # Redact potential API key from error message for security

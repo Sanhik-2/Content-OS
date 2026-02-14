@@ -10,6 +10,7 @@ import io
 import difflib
 import html
 import re
+import traceback
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -313,8 +314,8 @@ def st_call_gemini(prompt, task_type, model_name='gemini-2.5-flash'):
     res = call_gemini(prompt, task_type, model_name)
     if res and (res.startswith("AI Error") or res.startswith("Error")):
         st.error(res)
-        return None
-    return res
+        return ""
+    return res or ""
 
 ingest_client = IngestionClient()
 cms = ContentManager()
@@ -652,7 +653,7 @@ if engine == "CMS Library":
                             <span class="badge status-{sanitize_text(p['status'])}">{sanitize_text(p['status'])}</span>
                         </div>
                         <small style="color:#6b7280; display:block; margin-top:5px;">
-                            📁 {sanitize_text(p['folder'])} • 🕒 {sanitize_text(p['last_modified'][:10])}
+                            📁 {sanitize_text(p['folder'])} • 🕒 {sanitize_text(p['last_modified'][:10]) if p.get('last_modified') else 'N/A'}
                         </small>
                         <div style="margin-top:8px;">
                             <span style="font-size:0.8em; background:rgba(30,144,255,0.1); color:var(--accent-blue); padding:2px 6px; border-radius:4px;">
@@ -929,89 +930,108 @@ elif engine == "Transformation Engine":
                 st.session_state['transform_result'] = res
                 st.session_state['trans_mode_active'] = trans_mode
     
-    if 'transform_result' in st.session_state and st.session_state['transform_result']:
+    if 'transform_result' in st.session_state and st.session_state['transform_result'] is not None:
         st.markdown("### Transformation Result")
         
         # --- FLASHCARD VISUALIZATION ---
         if st.session_state.get('trans_mode_active') == "Quiz/Flashcards":
             try:
-                raw = st.session_state['transform_result'].strip()
-                # Remove markdown backticks if AI included them
-                raw = re.sub(r'^```json\s*', '', raw)
-                raw = re.sub(r'\s*```$', '', raw)
+                # 1. Extreme Input Hardening
+                res_val = st.session_state.get('transform_result', "")
+                if res_val is None: res_val = ""
                 
-                # Use regex to find the JSON array if AI included commentary
-                match = re.search(r'\[.*\]', raw, re.DOTALL)
+                raw_source = str(res_val).strip()
+                if not raw_source:
+                    st.info("Waiting for AI response...")
+                    st.stop()
+                
+                # 2. Layered Unescaping & Cleaning
+                import re as regex
+                processed = html.unescape(raw_source)
+                processed = regex.sub(r'^```json\s*', '', processed)
+                processed = regex.sub(r'\s*```$', '', processed)
+                
+                # 3. Robust JSON Extraction
+                match = regex.search(r'\[.*\]', processed, regex.DOTALL)
                 if match:
-                    json_str = match.group()
-                    # Handle HTML-encoded characters (like &quot; or &#x27;)
-                    json_str = html.unescape(json_str)
+                    json_str = str(match.group())
+                    # Final prep for JSON parser
+                    json_str = regex.sub(r',\s*\]', ']', json_str)
+                    json_str = regex.sub(r',\s*\}', '}', json_str)
                     
-                    # Pre-cleaning for trailing commas
-                    json_str = re.sub(r',\s*\]', ']', json_str)
-                    json_str = re.sub(r',\s*\}', '}', json_str)
+                    flashcards = json.loads(json_str) or []
                     
-                    flashcards = json.loads(json_str)
-                    
+                    # 4. State Management
                     if 'quiz_state' not in st.session_state:
                         st.session_state['quiz_state'] = {}
                     
                     @st.dialog("Quiz Result")
                     def quiz_modal(title, message):
                         st.markdown(f"### {title}")
-                        st.write(message)
+                        st.write(str(message))
                         if st.button("Close"): st.rerun()
 
+                    # 5. Safe Rendering Loop
                     cols = st.columns(2)
                     for idx, card in enumerate(flashcards):
-                        card_id = f"card_{idx}_{hashlib.md5(json_str.encode()).hexdigest()[:6]}"
+                        if not card or not isinstance(card, dict): continue
+                        
+                        # Generate a stable key for session state
+                        unique_id = hashlib.md5(f"{idx}_{json_str}".encode()).hexdigest()[:8]
+                        card_id = f"card_{unique_id}"
                         state = st.session_state['quiz_state'].get(card_id, {"status": "default", "revealed": False})
                         
                         card_class = "flashcard"
-                        if state['status'] == "correct": card_class += " correct"
-                        elif state['status'] == "incorrect": card_class += " incorrect"
+                        if state.get('status') == "correct": card_class += " correct"
+                        elif state.get('status') == "incorrect": card_class += " incorrect"
                         
                         with cols[idx % 2]:
-                            # Render Wrapper
-                            st.markdown(f"""
-                            <div class="{card_class}">
-                                <div class="flashcard-q">{card.get('question', '...')}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            # Render Question
+                            q_text = str(card.get('question', '...'))
+                            st.markdown(f"""<div class="{card_class}"><div class="flashcard-q">{q_text}</div></div>""", unsafe_allow_html=True)
                             
-                            # Interaction Area (outside HTML due to Streamlit limitations)
+                            # Input & Action Controls
                             ans_input = st.text_input("Your Answer", key=f"in_{card_id}", label_visibility="collapsed", placeholder="Type answer here...")
                             
-                            i_col1, i_col2 = st.columns(2)
-                            if i_col1.button("✔️ Check", key=f"chk_{card_id}", use_container_width=True):
-                                correct_ans = str(card.get('answer', '')).lower().strip()
-                                user_ans = ans_input.lower().strip()
-                                
-                                if user_ans and user_ans in correct_ans or correct_ans in user_ans:
-                                    st.session_state['quiz_state'][card_id] = {"status": "correct", "revealed": True}
-                                    quiz_modal("🎉 Right Answer!", f"Excellent! The answer is: {card.get('answer')}")
+                            c1, c2 = st.columns(2)
+                            if c1.button("✔️ Check", key=f"chk_{card_id}", use_container_width=True):
+                                if not ans_input:
+                                    st.warning("Please enter an answer.")
                                 else:
-                                    st.session_state['quiz_state'][card_id] = {"status": "incorrect", "revealed": False}
-                                    st.toast("Not quite right, try again!", icon="❌")
-                                    st.rerun()
+                                    with st.spinner("AI Evaluating..."):
+                                        check_prompt = f"QUESTION: {q_text}\nCORRECT: {card.get('answer')}\nUSER: {ans_input}\n\nTASK: Evaluate if the user is correct. Reply 'Correct' or 'Incorrect' first, then explain."
+                                        feedback_res = st_call_gemini(check_prompt, "validation")
+                                        if feedback_res:
+                                            is_right = feedback_res.strip().lower().startswith("correct")
+                                            st.session_state['quiz_state'][card_id] = {
+                                                "status": "correct" if is_right else "incorrect",
+                                                "revealed": True,
+                                                "feedback": feedback_res
+                                            }
+                                            if is_right: quiz_modal("🎉 Correct!", feedback_res)
+                                            else: st.toast("Try again!", icon="❌")
+                                            st.rerun()
 
-                            if i_col2.button("👁️ " + ("Hide" if state['revealed'] else "Reveal"), key=f"rev_{card_id}", use_container_width=True):
+                            if c2.button("👁️ " + ("Hide" if state.get('revealed') else "Reveal"), key=f"rev_{card_id}", use_container_width=True):
                                 st.session_state['quiz_state'][card_id] = {
-                                    "status": state['status'], 
-                                    "revealed": not state['revealed']
+                                    "status": state.get('status', 'default'), 
+                                    "revealed": not state.get('revealed', False),
+                                    "feedback": state.get('feedback', card.get('answer'))
                                 }
                                 st.rerun()
 
-                            if state['revealed']:
-                                st.markdown(f"""<div class="flashcard-a"><b>Answer:</b> {card.get('answer', '...')}</div>""", unsafe_allow_html=True)
+                            if state.get('revealed'):
+                                f_text = str(state.get('feedback', card.get('answer', '...')))
+                                st.markdown(f"""<div class="flashcard-a"><b>AI Insight:</b><br>{f_text}</div>""", unsafe_allow_html=True)
                             st.markdown("<br>", unsafe_allow_html=True)
                 else:
                     st.error("No valid flashcard data found in AI response.")
-                    st.code(raw)
+                    st.code(processed)
             except Exception as e:
-                st.error(f"JSON Parsing Error: {e}")
-                st.info("The AI response format was slightly off. You can see the raw output below.")
-                st.text_area("Developer Output (Raw)", st.session_state['transform_result'], height=200)
+                st.error(f"Visualization Error: {e}")
+                with st.expander("🔍 System Diagnostic"):
+                    st.code(traceback.format_exc())
+                st.text_area("Developer Log (Raw)", str(st.session_state.get('transform_result', 'No Data')), height=150)
         else:
             st.markdown(st.session_state['transform_result'])
         

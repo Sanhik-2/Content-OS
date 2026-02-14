@@ -50,48 +50,184 @@ st.set_page_config(
 # --- Custom CSS ---
 st.markdown("""
 <style>
-    /* Premium Look */
-    .main { background-color: #f8f9fa; font-family: 'Inter', sans-serif; }
-    h1, h2, h3 { color: #111827; font-weight: 700; letter-spacing: -0.025em; }
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+    :root {
+        --bg-color: #050505;
+        --card-bg: rgba(20, 20, 22, 0.7);
+        --accent-blue: #1E90FF;
+        --accent-red: #DC143C;
+        --text-primary: #FFFFFF;
+        --text-secondary: #A0A0A0;
+        --glass-border: rgba(255, 255, 255, 0.08);
+    }
+
+    /* Global Overrides */
+    .stApp {
+        background-color: var(--bg-color);
+        background-image: 
+            radial-gradient(circle at 15% 15%, rgba(220, 20, 60, 0.12) 0%, transparent 35%),
+            radial-gradient(circle at 85% 85%, rgba(30, 144, 255, 0.12) 0%, transparent 35%),
+            radial-gradient(circle at 50% 50%, rgba(30, 144, 255, 0.03) 0%, transparent 50%);
+        background-attachment: fixed;
+        color: var(--text-primary);
+        font-family: 'Inter', sans-serif;
+    }
+
+    /* Typography */
+    h1, h2, h3 {
+        font-family: 'Outfit', sans-serif !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.03em !important;
+        background: linear-gradient(135deg, #FFFFFF 0%, #A0A0A0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1rem !important;
+    }
+
+    /* Sidebar Styling */
+    section[data-testid="stSidebar"] {
+        background-color: rgba(10, 10, 12, 0.95) !important;
+        border-right: 1px solid var(--glass-border);
+    }
     
+    section[data-testid="stSidebar"] .stRadio > label {
+        color: var(--text-secondary);
+        font-weight: 600;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.1em;
+    }
+
     /* Buttons */
     .stButton>button {
-        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
-        color: white; border: none; border-radius: 8px;
-        padding: 0.5rem 1.2rem; font-weight: 600;
-        transition: all 0.2s ease-in-out;
-        box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.2);
+        background: linear-gradient(135deg, var(--accent-blue) 0%, #0056b3 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 12px !important;
+        padding: 0.6rem 1.6rem !important;
+        font-weight: 600 !important;
+        font-family: 'Outfit', sans-serif !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 4px 15px rgba(30, 144, 255, 0.25) !important;
+        width: 100%;
     }
-    .stButton>button:hover { transform: translateY(-1px); box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3); }
-    
-    /* Secondary Button */
+
+    .stButton>button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(30, 144, 255, 0.45) !important;
+        border: none !important;
+    }
+
+    /* Secondary/Kind Buttons */
     button[kind="secondary"] {
-        background: transparent; color: #4b5563; border: 1px solid #d1d5db;
-        box-shadow: none;
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid var(--glass-border) !important;
+        color: var(--text-primary) !important;
+        backdrop-filter: blur(5px);
     }
     
+    button[kind="secondary"]:hover {
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: var(--accent-blue) !important;
+    }
+
     /* Cards */
     .content-card {
-        background: white; border-radius: 12px; padding: 24px;
-        border: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        margin-bottom: 16px; transition: border-color 0.2s;
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        border: 1px solid var(--glass-border);
+        border-radius: 20px;
+        padding: 28px;
+        margin-bottom: 24px;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
     }
-    .content-card:hover { border-color: #6366f1; }
+
+    .content-card::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0; width: 100%; height: 2px;
+        background: linear-gradient(90deg, transparent, var(--accent-blue), transparent);
+        opacity: 0;
+        transition: opacity 0.4s;
+    }
+
+    .content-card:hover {
+        transform: translateY(-6px);
+        border-color: rgba(30, 144, 255, 0.3);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+    }
     
+    .content-card:hover::before {
+        opacity: 1;
+    }
+
     /* Status Tags */
-    .badge { padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; }
-    .status-Idea { background-color: #e0f2fe; color: #0369a1; }
-    .status-Draft { background-color: #fef9c3; color: #854d0e; }
-    .status-Review { background-color: #f3e8ff; color: #6b21a8; }
-    .status-Approval { background-color: #cffafe; color: #0e7490; }
-    .status-Publication { background-color: #dcfce7; color: #15803d; }
-    .status-Archival { background-color: #f3f4f6; color: #374151; }
+    .badge {
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        backdrop-filter: blur(4px);
+    }
+    .status-Idea { background-color: rgba(30, 144, 255, 0.15); color: #60a5fa; border: 1px solid rgba(30, 144, 255, 0.3); }
+    .status-Draft { background-color: rgba(255, 193, 7, 0.15); color: #fbbf24; border: 1px solid rgba(255, 193, 7, 0.3); }
+    .status-Review { background-color: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3); }
+    .status-Approval { background-color: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+    .status-Publication { background-color: rgba(30, 144, 255, 0.25); color: #FFFFFF; border: 1px solid var(--accent-blue); }
+    .status-Archival { background-color: rgba(220, 20, 60, 0.15); color: var(--accent-red); border: 1px solid rgba(220, 20, 60, 0.3); }
+
+    /* Inputs */
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div>div {
+        background-color: rgba(255, 255, 255, 0.03) !important;
+        border: 1px solid var(--glass-border) !important;
+        color: white !important;
+        border-radius: 10px !important;
+    }
     
+    .stTextInput>div>div>input:focus, .stTextArea>div>div>textarea:focus {
+        border-color: var(--accent-blue) !important;
+        box-shadow: 0 0 0 1px var(--accent-blue) !important;
+    }
+
     /* Metadata Box */
     .meta-box {
-        background-color: #f9fafb; border-radius: 8px; padding: 12px;
-        border: 1px solid #f3f4f6; margin-top: 10px; font-size: 0.9em;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 12px;
+        padding: 16px;
+        border: 1px solid var(--glass-border);
+        margin-top: 15px;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
     }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .main .block-container { padding: 1.5rem 1rem !important; }
+        h1 { font-size: 2.2rem !important; }
+        .content-card { padding: 20px; }
+    }
+
+    /* Animation */
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .main .block-container > div {
+        animation: fadeIn 0.6s ease-out forwards;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-color); }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-blue); }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -204,9 +340,17 @@ if 'generated_content' not in st.session_state: st.session_state['generated_cont
 
 # --- SIDEBAR NAV ---
 with st.sidebar:
+    st.markdown('<div style="text-align: center; padding: 10px 0;">', unsafe_allow_html=True)
     st.title("⚡ Content OS")
+    st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
     engine = st.radio("Core Engine", ["CMS Library", "Creation Engine", "Transformation Engine", "Personalization Engine"], index=1)
+    
+    st.markdown("""
+    <div style="margin-top: 10px; margin-bottom: 20px;">
+        <span class="badge" style="background:rgba(30,144,255,0.1); color:var(--accent-blue); width: 100%; display: block; text-align: center;">Responsive Design Active</span>
+    </div>
+    """, unsafe_allow_html=True)
     st.markdown("---")
     
     with st.expander("📂 Folder Manager", expanded=False):
@@ -263,8 +407,8 @@ with st.sidebar:
 # --- WEB BOILERPLATE GENERATOR ---
 def get_web_boilerplate(title, content):
     """
-    Generates a standalone HTML file for GitHub Pages deployment.
-    Contains a prompt for AI enhancement.
+    Generates a standalone, premium HTML file for GitHub Pages deployment.
+    Features heavy responsive design, typography optimization, and dark-mode aesthetics.
     """
     import html
     safe_title = html.escape(title)
@@ -272,60 +416,130 @@ def get_web_boilerplate(title, content):
     # especially about the closing script tag.
     safe_content = content.replace("</script>", "<\\/script>")
     
-    html_template = f"""<!-- 
-PROMPT TO ENHANCE THIS FILE:
-"You are an expert web developer. Refine this HTML file to be a stunning, responsive, and SEO-optimized blog post page. 
-Current Stack: HTML5, CSS3, Vanilla JS, Marked.js for Markdown rendering.
-Requirements:
-1. Improve the Typography using Google Fonts (Inter/Merriweather).
-2. Add a Dark/Light mode toggle.
-3. Enhance the CSS for a 'Medium-like' reading experience (max-width, line-height, spacing).
-4. Make specific styles for code blocks, blockquotes, and headers.
-5. Ensure it is ready for GitHub Pages (relative paths, meta tags).
-6. Keep it contained in a single file if possible."
--->
-<!DOCTYPE html>
+    html_template = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{safe_title}</title>
-    <meta name="description" content="Generated by Content OS">
+    <title>{safe_title} | Content OS</title>
+    <meta name="description" content="Professional content generated by Content OS">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 0 auto; padding: 20px; }}
-        img {{ max-width: 100%; height: auto; border-radius: 8px; }}
-        pre {{ background: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; }}
-        blockquote {{ border-left: 4px solid #ccc; margin: 0; padding-left: 16px; color: #666; }}
-        h1 {{ font-size: 2.5em; border-bottom: 2px solid #eee; padding-bottom: 10px; }}
-        .meta {{ color: #777; font-size: 0.9em; margin-bottom: 30px; }}
-        #content {{ margin-top: 40px; }}
+        :root {{
+            --bg: #050505;
+            --surface: #0A0A0B;
+            --accent-blue: #1E90FF;
+            --accent-red: #DC143C;
+            --text: #FFFFFF;
+            --text-dim: #A0A0A0;
+            --border: rgba(255, 255, 255, 0.08);
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ 
+            background: var(--bg); 
+            color: var(--text); 
+            font-family: 'Inter', sans-serif; 
+            line-height: 1.7; 
+            -webkit-font-smoothing: antialiased; 
+        }}
+        .container {{ max-width: 800px; margin: 0 auto; padding: 80px 24px; min-height: 100vh; }}
+        
+        /* Premium Typography */
+        h1 {{ 
+            font-family: 'Outfit', sans-serif; 
+            font-size: clamp(2.5rem, 8vw, 4rem); 
+            line-height: 1.05; 
+            margin-bottom: 24px; 
+            background: linear-gradient(135deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.04em;
+        }}
+        .meta {{ 
+            color: var(--text-dim); 
+            font-size: 0.8rem; 
+            margin-bottom: 60px; 
+            display: flex; 
+            align-items: center;
+            gap: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            font-weight: 600;
+        }}
+        .meta::before {{
+            content: "";
+            width: 30px;
+            height: 1px;
+            background: var(--accent-blue);
+        }}
+        
+        /* Markdown Content Styling */
+        #content {{ font-size: 1.15rem; color: rgba(255,255,255,0.9); }}
+        #content h2 {{ font-family: 'Outfit', sans-serif; margin: 56px 0 24px; font-size: 2.2rem; color: var(--text); letter-spacing: -0.02em; }}
+        #content h3 {{ font-family: 'Outfit', sans-serif; margin: 40px 0 16px; font-size: 1.6rem; color: var(--text); }}
+        #content p {{ margin-bottom: 28px; }}
+        #content img {{ max-width: 100%; height: auto; border-radius: 24px; margin: 40px 0; border: 1px solid var(--border); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }}
+        #content pre {{ background: var(--surface); padding: 28px; border-radius: 16px; border: 1px solid var(--border); overflow-x: auto; margin: 40px 0; font-family: 'ui-monospace', monospace; }}
+        #content code {{ background: rgba(255,255,255,0.05); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }}
+        #content blockquote {{ border-left: 2px solid var(--accent-blue); padding: 8px 0 8px 32px; margin: 48px 0; font-style: italic; color: var(--text-dim); font-size: 1.4rem; line-height: 1.5; }}
+        #content ul, #content ol {{ margin: 0 0 32px 24px; }}
+        #content li {{ margin-bottom: 12px; }}
+        
+        /* Decorative Glows */
+        .glow-red {{ position: fixed; top: -15%; left: -10%; width: 50%; height: 50%; background: radial-gradient(circle, rgba(220, 20, 60, 0.12) 0%, transparent 70%); pointer-events: none; z-index: -1; }}
+        .glow-blue {{ position: fixed; bottom: -15%; right: -10%; width: 50%; height: 50%; background: radial-gradient(circle, rgba(30, 144, 255, 0.12) 0%, transparent 70%); pointer-events: none; z-index: -1; }}
+        
+        /* Scroll Progress */
+        #progress {{ position: fixed; top: 0; left: 0; height: 3px; background: linear-gradient(90deg, var(--accent-red), var(--accent-blue)); width: 0%; z-index: 100; transition: width 0.1s; }}
+
+        /* Responsive Improvements */
+        @media (max-width: 768px) {{
+            .container {{ padding: 60px 24px; }}
+            #content {{ font-size: 1.05rem; }}
+        }}
     </style>
 </head>
 <body>
-    <div id="content">
-        <!-- Content will be rendered here -->
+    <div id="progress"></div>
+    <div class="glow-red"></div>
+    <div class="glow-blue"></div>
+    
+    <div class="container">
+        <div class="meta"><span>Content OS</span> • <span id="date"></span></div>
+        <h1>{safe_title}</h1>
+        <div id="content">Loading article...</div>
     </div>
 
     <!-- DATA HIDDEN IN SCRIPT FOR JS TO PARSE -->
-    <script id="raw-markdown" type="text/markdown">
-{safe_content}
-    </script>
+    <script id="raw-markdown" type="text/markdown">{safe_content}</script>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {{
             const raw = document.getElementById('raw-markdown').textContent;
             document.getElementById('content').innerHTML = marked.parse(raw);
+            document.getElementById('date').textContent = new Date().toLocaleDateString('en-US', {{ month: 'long', day: 'numeric', year: 'numeric' }});
+            
+            window.onscroll = function() {{
+                const winScroll = document.body.scrollTop || document.documentElement.scrollTop;
+                const height = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+                const scrolled = (winScroll / height) * 100;
+                document.getElementById("progress").style.width = scrolled + "%";
+            }};
         }});
     </script>
 </body>
-</html>
-"""
+</html>"""
     return html_template
 
 # ================= CMS LIBRARY VIEW =================
 if engine == "CMS Library":
-    st.header("📂 Content Library & Smart CMS")
+    st.markdown("""
+        <div class="content-card" style="background: linear-gradient(135deg, rgba(30, 144, 255, 0.1) 0%, transparent 100%);">
+            <h1 style="margin:0;">📂 Content Library</h1>
+            <p style="color: var(--text-secondary);">Manage, version, and export your professional assets.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     # Filter
     search_col, sort_col = st.columns([3, 1])
@@ -475,7 +689,12 @@ if engine == "CMS Library":
 
 # ================= CREATION ENGINE =================
 elif engine == "Creation Engine":
-    st.header("🎨 AI Content Creation Engine")
+    st.markdown("""
+        <div class="content-card" style="background: linear-gradient(135deg, rgba(30, 144, 255, 0.1) 0%, transparent 100%);">
+            <h1 style="margin:0;">🎨 Creation Engine</h1>
+            <p style="color: var(--text-secondary);">Generate high-fidelity content from any source material.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     with st.container():
         st.markdown('<div class="content-card">', unsafe_allow_html=True)
@@ -650,7 +869,12 @@ elif engine == "Creation Engine":
 
 # ================= TRANSFORMATION ENGINE =================
 elif engine == "Transformation Engine":
-    st.header("🔄 Content Transformation Engine")
+    st.markdown("""
+        <div class="content-card" style="background: linear-gradient(135deg, rgba(220, 20, 60, 0.1) 0%, transparent 100%);">
+            <h1 style="margin:0;">🔄 Transformation</h1>
+            <p style="color: var(--text-secondary);">Repurpose your content across formats and styles.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     projects = cms.list_all_content()
     opts = {p['title']: p for p in projects}
@@ -711,21 +935,28 @@ elif engine == "Transformation Engine":
 
 # ================= PERSONALIZATION ENGINE =================
 elif engine == "Personalization Engine":
-    st.header("🧠 Personalization Engine")
+    st.markdown("""
+        <div class="content-card" style="background: linear-gradient(135deg, rgba(30, 144, 255, 0.1) 0%, rgba(220, 20, 60, 0.05) 100%);">
+            <h1 style="margin:0;">🧠 Personalization</h1>
+            <p style="color: var(--text-secondary);">AI-driven audience insights and engagement predictive modeling.</p>
+        </div>
+    """, unsafe_allow_html=True)
     
     # 1. AI User Behavior Predictive Modeling
-    with st.expander("📊 AI User Behavior & Modeling", expanded=True):
-        predictions = tracker.get_metrics_prediction()
-        pmc1, pmc2, pmc3 = st.columns(3)
-        pmc1.metric("Predicted Intensity", f"{predictions['predicted_intensity']}%")
-        pmc2.metric("Satisfaction Prediction", f"{predictions['satisfaction_prediction']}%")
-        pmc3.metric("Model Confidence", f"{predictions['learning_confidence']}%")
-        
-        st.info(f"**Predicted Focus Area:** {predictions['focus_area']}")
-        st.success(f"**Suggested Next Action:** {predictions['suggested_action']}")
-        
-        # AI-Predicted Engagement Score for the user session
-        st.progress(predictions['predicted_intensity'], text="Predicted User Engagement Level")
+    st.markdown('<div class="content-card">', unsafe_allow_html=True)
+    st.subheader("📊 AI User Behavior & Modeling")
+    predictions = tracker.get_metrics_prediction()
+    pmc1, pmc2, pmc3 = st.columns(3)
+    pmc1.metric("Predicted Intensity", f"{predictions['predicted_intensity']}%")
+    pmc2.metric("Satisfaction Prediction", f"{predictions['satisfaction_prediction']}%")
+    pmc3.metric("Model Confidence", f"{predictions['learning_confidence']}%")
+    
+    st.info(f"**Predicted Focus Area:** {predictions['focus_area']}")
+    st.success(f"**Suggested Next Action:** {predictions['suggested_action']}")
+    
+    # AI-Predicted Engagement Score for the user session
+    st.progress(predictions['predicted_intensity'], text="Predicted User Engagement Level")
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
